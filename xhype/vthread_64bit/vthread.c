@@ -412,7 +412,7 @@ void* vcpu_create_run(void* arg_vth) {
       continue;
     } else if (exit_reason == VMX_REASON_EPT_VIOLATION) {
       printf("VMX_REASON_EPT_VIOLATION\n");
-      print_ept_vio_qualifi(qual);
+      dbg_print_qual(qual);
       continue;
     } else if (exit_reason == VMX_REASON_MOV_CR) {
       printf("VMX_REASON_MOV_CR\n");

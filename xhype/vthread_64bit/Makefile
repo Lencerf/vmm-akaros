@@ -3,15 +3,24 @@ obj = $(src:.c=.o)
 
 CC=clang
 CXX=clang++
-CFLAGS=-g 
+CFLAGS=-g -Wall
 CXXFLAGS=-std=c++11
-LDFLAGS=-framework Hypervisor -L. -lchange
+LDFLAGS=-framework Hypervisor 
+
+runkernel64: runkernel64.o utils.o vmm.o kernel_loader.o
+	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) 
+
+vmrunkernel: vmrunkernel.o utils.o
+	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) 
+
+vmrunkernel64: vmrunkernel64.o utils.o
+	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) 
 
 libchange.dylib: change.c
 	$(CC) -o $@ -dynamiclib $(CFLAGS) $^
 
 main: main.o vthread.o utils.o identity_map.o vthread_hlt.o libchange.dylib
-	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) 
+	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) -L. -lchange
 
 .PHONY: clean
 clean:

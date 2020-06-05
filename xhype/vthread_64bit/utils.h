@@ -4,14 +4,17 @@
 #include <Hypervisor/hv.h>
 #include <Hypervisor/hv_arch_vmx.h>
 #include <Hypervisor/hv_vmx.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
 #include <stdlib.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 void print_green(const char* msg, ...);
 void print_red(const char* msg, ...);
 void print_payload(const void* payload, int len);
-void guard(int n);
+void dbg_print_payload(const void* payload, int len);
 
 // #define GUARD(cmd, r) {
 // uint64_t ret = (cmd);
@@ -31,7 +34,7 @@ void guard(int n);
     }                                                   \
   }
 
-void print_ept_vio_qualifi(uint64_t qual);
+void dbg_print_qual(uint64_t qual);
 // void print_cap(uint64_t cap);
 uint64_t rreg(hv_vcpuid_t vcpu, hv_x86_reg_t reg);
 void wreg(hv_vcpuid_t vcpu, hv_x86_reg_t reg, uint64_t v);
@@ -41,11 +44,15 @@ void hvdump(int vcpu);
 uint64_t simulate_paging(uint64_t cr3, uint8_t* guest_mem, uint64_t gva);
 uint64_t cap2ctrl(uint64_t cap, uint64_t ctrl);
 void print_bits(uint64_t num, int bits);
-void print_exception_info(uint32_t info, uint64_t code);
+void dbg_print_exception_info(uint32_t info, uint64_t code);
 
 #define MUST1 2
 #define MUST0 1
 #define SUCC 0
+
+uint64_t vm_alloc(size_t size);
+uint64_t vm_alloc_aligned(size_t size, uint64_t align);
+
 #ifdef __cplusplus
 }
 #endif

@@ -8,6 +8,8 @@
 #include <Hypervisor/hv_types.h>
 #include <Hypervisor/hv_vmx.h>
 #include <ctype.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -148,6 +150,12 @@ void wvmcs(hv_vcpuid_t vcpu, uint32_t field, uint64_t v) {
   }
 }
 
+void dbg_hvdump(int vcpu) {
+#ifdef DEBUG
+  hvdump(vcpu);
+#endif
+}
+
 void hvdump(int vcpu) {
   printf("VMCS_PIN_BASED_CTLS:           0x%llx\n",
          rvmcs(vcpu, VMCS_PIN_BASED_CTLS));
@@ -264,8 +272,9 @@ void hvdump(int vcpu) {
          rreg(vcpu, HV_X86_R15));
 }
 
-void print_ept_vio_qualifi(uint64_t qual) {
-  //   print_bits(qual, 64);
+void dbg_print_qual(uint64_t qual) {
+#ifdef DEBUG
+  print_bits(qual, 17);
   //   for (int i = 12; i >= 0; i -= 1) {
   //     if (qual & (1 << i)) {
   //       printf("1");
@@ -294,6 +303,18 @@ void print_ept_vio_qualifi(uint64_t qual) {
     printf("INVALID, ");
   }
   printf("\n");
+#endif
+}
+
+void dbg_printf(const char *msg, ...) {
+#ifdef DEBUG
+  va_list argp;
+
+  va_start(argp, msg);
+  vfprintf(stdout, msg, argp);
+  va_end(argp);
+
+#endif
 }
 
 void print_green(const char *msg, ...) {
@@ -374,6 +395,12 @@ void print_hex_ascii_line(const uint8_t *payload, int len, int offset) {
 //   printf("\n\n");
 // }
 
+void dbg_print_payload(const void *payload, int len) {
+#ifdef DEBUG
+  print_payload(payload, len);
+#endif
+}
+
 void print_payload(const void *payload, int len) {
   int len_rem = len;
   int line_width = 16; /* number of bytes per line */
@@ -423,7 +450,8 @@ void print_bits(uint64_t num, int bits) {
   printf("\n");
 }
 
-void print_exception_info(uint32_t info, uint64_t code) {
+void dbg_print_exception_info(uint32_t info, uint64_t code) {
+#ifdef DEBUG
   uint8_t low8 = info;
   if (low8 == 2) {
     printf("NMI, ");
@@ -446,4 +474,26 @@ void print_exception_info(uint32_t info, uint64_t code) {
     printf("NMI unblocking due to IRET,");
   }
   printf("\n");
+#endif
+}
+
+uint64_t vm_alloc(size_t size) {
+  mach_vm_address_t addr;
+  kern_return_t ret =
+      mach_vm_allocate(mach_task_self(), &addr, size, VM_FLAGS_ANYWHERE);
+  return ret == KERN_SUCCESS ? addr : 0;
+}
+
+uint64_t vm_alloc_aligned(size_t size, uint64_t align) {
+  mach_vm_address_t addr;
+  kern_return_t ret = mach_vm_allocate(mach_task_self(), &addr, size + align,
+                                       VM_FLAGS_ANYWHERE);
+  if (ret == KERN_SUCCESS) {
+    mach_vm_address_t addr_aligned = (addr / align + 1) * align;
+    mach_vm_deallocate(mach_task_self(), addr, addr_aligned - addr);
+    mach_vm_deallocate(mach_task_self(), addr_aligned + size, addr % align);
+    return addr_aligned;
+  } else {
+    return 0;
+  }
 }
