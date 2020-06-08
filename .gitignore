@@ -31,3 +31,18 @@
 # Debug files
 *.dSYM/
 /vmm
+
+# xhype
+xhype/vthread_64bit/build
+xhype/vthread_64bit/test
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles
+CMakeScripts
+Testing
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
