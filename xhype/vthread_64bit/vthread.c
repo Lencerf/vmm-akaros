@@ -10,7 +10,7 @@
 #include "identity_map.h"
 #include "paging.h"
 #include "utils.h"
-#include "vmexit_qual.h"
+#include "vmexit.h"
 #include "vthread_hlt.h"
 #include "x86.h"
 
@@ -258,46 +258,6 @@ void vcpu_long_mode(hv_vcpuid_t vcpu) {
   wvmcs(vcpu, VMCS_GUEST_IA32_EFER, efer);
 }
 
-// Intel manuel, Volume 3, table 27-3
-uint64_t vmx_get_guest_reg(int vcpu, int ident) {
-  switch (ident) {
-    case 0:
-      return (rreg(vcpu, HV_X86_RAX));
-    case 1:
-      return (rreg(vcpu, HV_X86_RCX));
-    case 2:
-      return (rreg(vcpu, HV_X86_RDX));
-    case 3:
-      return (rreg(vcpu, HV_X86_RBX));
-    case 4:
-      return (rvmcs(vcpu, VMCS_GUEST_RSP));
-    case 5:
-      return (rreg(vcpu, HV_X86_RBP));
-    case 6:
-      return (rreg(vcpu, HV_X86_RSI));
-    case 7:
-      return (rreg(vcpu, HV_X86_RDI));
-    case 8:
-      return (rreg(vcpu, HV_X86_R8));
-    case 9:
-      return (rreg(vcpu, HV_X86_R9));
-    case 10:
-      return (rreg(vcpu, HV_X86_R10));
-    case 11:
-      return (rreg(vcpu, HV_X86_R11));
-    case 12:
-      return (rreg(vcpu, HV_X86_R12));
-    case 13:
-      return (rreg(vcpu, HV_X86_R13));
-    case 14:
-      return (rreg(vcpu, HV_X86_R14));
-    case 15:
-      return (rreg(vcpu, HV_X86_R15));
-    default:
-      abort();
-  }
-}
-
 void* vcpu_create_run(void* arg_vth) {
   struct vthread* vth = (struct vthread*)arg_vth;
   hv_vcpuid_t vcpu;
@@ -396,7 +356,7 @@ void* vcpu_create_run(void* arg_vth) {
       // printf("\n");
       // print_payload((char*)ip, 32);
       // printf("cr2=%llx\n", rreg(vcpu, HV_X86_CR2));
-      struct interrupt_info* info_s = (struct interrupt_info*)&info;
+      struct vmexit_intr_info* info_s = (struct vmexit_intr_info*)&info;
       if (info_s->vector == 14) {
         printf("page fault, linear addr = %llx\n", qual);
         if (map_address(qual)) {

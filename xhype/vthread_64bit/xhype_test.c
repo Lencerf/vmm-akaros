@@ -1,10 +1,15 @@
+#include "constants.h"
+// #define TEMP32
+#ifdef TEMP32
+#include "kernel_loader32.h"
+#else
+#include "kernel_loader.h"
+#endif
 #include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
 
-#include "change.h"
+#include "stdio.h"
 #include "utils.h"
+#include "vmm.h"
 #include "vthread.h"
 
 #define TESTSTR "HAPPY"
@@ -35,7 +40,7 @@ void* copy_str(void) {
   return NULL;
 }
 
-int main() {
+int test_vthread() {
   vth_init();
 
   struct vthread* vth1 = vthread_create(add_a, NULL);
@@ -52,3 +57,23 @@ int main() {
   printf("b=%d, len=%zu, str_copy=%s\n", b, len, str_copy);
   return 0;
 }
+
+int test_run_kernel() {
+  char* kn_file = "test/vmlinuz";                       // vmlinuz
+  char* rd_file = "test/initrd.gz";                     // initrd.gz
+  char* cmd_line = "earlyprintk=serial console=ttyS0";  // auto
+
+  vmm_init();
+  struct virtual_machine vm;
+  vm_init(&vm);
+
+  struct vkernel vkn;
+#ifdef TEMP32
+  GUARD(load_linux32(&vm, &vkn, kn_file, rd_file, cmd_line, 1 * GiB), 0);
+#else
+  GUARD(load_linux64(&vm, &vkn, kn_file, rd_file, cmd_line, 1 * GiB), 0);
+#endif
+  run_vm(&(vkn.tf));
+}
+
+int main(int argc, char** argv) { test_run_kernel(); }
