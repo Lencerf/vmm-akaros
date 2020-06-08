@@ -17,6 +17,7 @@
 
 #include "vmcs.h"
 
+#define DEBUG
 /* desired control word constrained by hardware/hypervisor capabilities */
 uint64_t cap2ctrl(uint64_t cap, uint64_t ctrl) {
   return (ctrl | (cap & 0xffffffff)) & (cap >> 32);
@@ -31,8 +32,17 @@ struct gva_t {
   uint64_t empty : 16;
 };
 
-uint64_t simulate_paging(uint64_t cr3, uint8_t *guest_mem, uint64_t gva) {
-  printf("gva = %llx\n", gva);
+// uint64_t gva2gpa(uint64_t cr3, uint64_t gva) { gva &= 0xffffffffffffULL;
+
+//  }
+
+uint64_t simulate_paging(uint64_t cr0, uint64_t cr3, void *guest_mem,
+                         uint64_t gva) {
+  if (!(cr0 & (1UL << 31))) {
+    return gva;
+  }
+  gva &= 0xffffffffffffULL;
+  // printf("gva = %llx\n", gva);
   struct gva_t gvaddr;
   uint64_t gpa;
   memcpy(&gvaddr, &gva, sizeof(gvaddr));
@@ -41,7 +51,7 @@ uint64_t simulate_paging(uint64_t cr3, uint8_t *guest_mem, uint64_t gva) {
     printf("pdpt does not exit\n");
     return 0;
   } else {
-    printf("pml4e = %llx\n", pml4e);
+    // printf("pml4e = %llx\n", pml4e);
   }
   uint64_t pdpte =
       ((uint64_t *)(guest_mem + ((pml4e >> 12) << 12)))[gvaddr.dir_p];
@@ -49,12 +59,12 @@ uint64_t simulate_paging(uint64_t cr3, uint8_t *guest_mem, uint64_t gva) {
     printf("pde does not exit\n");
     return 0;
   } else {
-    printf("pdpte = %llx\n", pdpte);
+    // printf("pdpte = %llx\n", pdpte);
   }
   if ((pdpte & (1 << 7))) {
     gpa = ((pdpte >> 30ULL) << 30ULL) + (gva & 0x3FFFFFFF);
-    printf("1GB paging, base = %llx, offset=%llx, gpa = %llx\n",
-           (pdpte >> 30) << 30, gva & 0x3FFFFFFF, gpa);
+    // printf("1GB paging, base = %llx, offset=%llx, gpa = %llx\n",
+    //        (pdpte >> 30) << 30, gva & 0x3FFFFFFF, gpa);
     return gpa;
   }
   uint64_t pde = ((uint64_t *)(guest_mem + ((pdpte >> 12) << 12)))[gvaddr.dir];
@@ -73,6 +83,46 @@ uint64_t simulate_paging(uint64_t cr3, uint8_t *guest_mem, uint64_t gva) {
   }
   gpa = ((pte >> 12) << 12) + gvaddr.offset;
   return gpa;
+}
+
+// Intel manuel, Volume 3, table 27-3
+uint64_t vmx_get_guest_reg(int vcpu, int ident) {
+  switch (ident) {
+    case 0:
+      return (rreg(vcpu, HV_X86_RAX));
+    case 1:
+      return (rreg(vcpu, HV_X86_RCX));
+    case 2:
+      return (rreg(vcpu, HV_X86_RDX));
+    case 3:
+      return (rreg(vcpu, HV_X86_RBX));
+    case 4:
+      return (rvmcs(vcpu, VMCS_GUEST_RSP));
+    case 5:
+      return (rreg(vcpu, HV_X86_RBP));
+    case 6:
+      return (rreg(vcpu, HV_X86_RSI));
+    case 7:
+      return (rreg(vcpu, HV_X86_RDI));
+    case 8:
+      return (rreg(vcpu, HV_X86_R8));
+    case 9:
+      return (rreg(vcpu, HV_X86_R9));
+    case 10:
+      return (rreg(vcpu, HV_X86_R10));
+    case 11:
+      return (rreg(vcpu, HV_X86_R11));
+    case 12:
+      return (rreg(vcpu, HV_X86_R12));
+    case 13:
+      return (rreg(vcpu, HV_X86_R13));
+    case 14:
+      return (rreg(vcpu, HV_X86_R14));
+    case 15:
+      return (rreg(vcpu, HV_X86_R15));
+    default:
+      abort();
+  }
 }
 
 // #define MUST1 2
@@ -468,10 +518,15 @@ void dbg_print_exception_info(uint32_t info, uint64_t code) {
                            "software"};
   printf("%s, ", bits10_8_info[bits10_8]);
   if (info & (1 << 11)) {
-    printf("error code, %llx, %llu", code, code);
+    printf("error code = 0x%llx = %llu", code, code);
   }
   if (info & (1 << 12)) {
     printf("NMI unblocking due to IRET,");
+  }
+  if (info & (1U << 31)) {
+    printf("valid");
+  } else {
+    printf("not valid");
   }
   printf("\n");
 #endif

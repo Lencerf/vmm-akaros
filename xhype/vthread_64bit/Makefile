@@ -7,8 +7,8 @@ CFLAGS=-g -Wall
 CXXFLAGS=-std=c++11
 LDFLAGS=-framework Hypervisor 
 
-runkernel64: runkernel64.o utils.o vmm.o kernel_loader.o
-	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) 
+runkernel64: runkernel64.o utils.o vmm.o kernel_loader.o kernel_loader32.o vmexit.o vmexit_msr.o vmexit_cpuid.o
+	$(CXX) -o build/$@ $^ $(CFLAGS) $(LDFLAGS) 
 
 vmrunkernel: vmrunkernel.o utils.o
 	$(CXX) -o $@ $^ $(CFLAGS) $(LDFLAGS) 

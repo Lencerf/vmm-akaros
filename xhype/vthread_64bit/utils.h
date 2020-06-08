@@ -10,7 +10,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+void dbg_printf(const char* msg, ...);
 void print_green(const char* msg, ...);
 void print_red(const char* msg, ...);
 void print_payload(const void* payload, int len);
@@ -41,7 +41,9 @@ void wreg(hv_vcpuid_t vcpu, hv_x86_reg_t reg, uint64_t v);
 uint64_t rvmcs(hv_vcpuid_t vcpu, uint32_t field);
 void wvmcs(hv_vcpuid_t vcpu, uint32_t field, uint64_t v);
 void hvdump(int vcpu);
-uint64_t simulate_paging(uint64_t cr3, uint8_t* guest_mem, uint64_t gva);
+uint64_t simulate_paging(uint64_t cr0, uint64_t cr3, void* guest_mem,
+                         uint64_t gva);
+uint64_t vmx_get_guest_reg(int vcpu, int ident);
 uint64_t cap2ctrl(uint64_t cap, uint64_t ctrl);
 void print_bits(uint64_t num, int bits);
 void dbg_print_exception_info(uint32_t info, uint64_t code);
@@ -56,15 +58,6 @@ uint64_t vm_alloc_aligned(size_t size, uint64_t align);
 #ifdef __cplusplus
 }
 #endif
-
-struct interrupt_info {
-  uint32_t vector : 8;
-  uint32_t type : 3;
-  uint32_t code_valid : 1;
-  uint32_t nmi : 1;
-  uint32_t reserved : 18;
-  uint32_t valid : 1;
-};
 
 #endif
 // #define WVMCS_0CAP(vcpu, cap_field, cpu_cap, value)        \
