@@ -3,6 +3,7 @@
 #include <pthread.h>
 #include <stdio.h>
 
+#include "constants.h"
 #include "utils.h"
 #include "vmexit.h"
 #include "x86.h"
@@ -259,6 +260,8 @@ void* run_vm(void* args) {
     uint64_t exit_instr_len = rvmcs(vcpu, VMCS_RO_VMEXIT_INSTR_LEN);
     uint64_t cr0 = rreg(vcpu, HV_X86_CR0);
 
+    uint64_t gpa = rvmcs(vcpu, VMCS_GUEST_PHYSICAL_ADDRESS);
+    uint64_t gva = rvmcs(vcpu, VMCS_RO_GUEST_LIN_ADDR);
     if (exit_reason == VMX_REASON_EXC_NMI) {
       printf("VMX_REASON_EXC_NMI\n");
       uint32_t info = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_INFO);
@@ -269,16 +272,17 @@ void* run_vm(void* args) {
       print_red("VMX_REASON_HLT\n");
       handled = VMEXIT_STOP;
     } else if (exit_reason == VMX_REASON_IRQ) {
-      uint32_t info = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_INFO);
-      uint64_t code = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_ERROR);
-      // dbg_print_exception_info(info, code);
+      // uint32_t info = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_INFO);
+      // uint64_t code = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_ERROR);
 
       // dbg_printf("VMX_REASON_IRQ\n");
-      uint64_t cr3 = rvmcs(vcpu, VMCS_GUEST_CR3);
-      uint64_t rip_h = simulate_paging(cr0, cr3, guest_mem0_h, rip);
-      // printf("IRQ, rip = %llx, instruction\n", rip);
-      // printf("irq instruction:\n");
-      // print_payload(guest_mem0_h + rip_h, exit_instr_len + 5);
+      // dbg_print_exception_info(info, code);
+      // printf("gpa = %llx, gva = %llx\n", gpa, gva);
+      // uint64_t cr3 = rvmcs(vcpu, VMCS_GUEST_CR3);
+      // uint64_t rip_h = simulate_paging(cr0, cr3, guest_mem0_h, rip);
+      // printf("IRQ, rip = %llx.\n");
+      // printf("len = %lld, irq instruction:\n", exit_instr_len);
+      // print_payload(guest_mem0_h + rip_h - 32, exit_instr_len + 64);
       handled = VMEXIT_RESUME;
       // hvdump(vcpu);
       // if (rip == 0xffffffff818be07eULL) {
@@ -286,9 +290,20 @@ void* run_vm(void* args) {
       //   handled = VMEXIT_STOP;
       // }
     } else if (exit_reason == VMX_REASON_EPT_VIOLATION) {
-      // dbg_printf("VMX_REASON_EPT_VIOLATION\n");
-      // dbg_print_qual(qual);
-      handled = VMEXIT_RESUME;
+      // temporary debug setup
+      const uint64_t rd_base = 0x100000;
+      const uint64_t rd_region_size = 0x742000;
+      const uint64_t low_memsize = 0x100000;
+      if ((gpa < low_memsize) ||
+          (gpa >= rd_base && gpa < rd_base + rd_region_size) ||
+          (gpa >= 0x200000000 && gpa < 0x200000000 + 1 * GiB)) {
+        handled = VMEXIT_RESUME;
+      } else {
+        printf("gpa = %llx, gva = %llx\n", gpa, gva);
+        dbg_printf("VMX_REASON_EPT_VIOLATION\n");
+        dbg_print_qual(qual);
+        handled = VMEXIT_STOP;
+      }
     } else if (exit_reason == VMX_REASON_MOV_CR) {
       handled = vmm_handle_move_cr(vcpu);
     } else if (exit_reason == VMX_REASON_RDMSR) {
@@ -297,6 +312,8 @@ void* run_vm(void* args) {
       handled = vmm_handle_wrmsr(vcpu);
     } else if (exit_reason == VMX_REASON_CPUID) {
       handled = vmm_handle_cpuid(vcpu);
+    } else if (exit_reason == VMX_REASON_IO) {
+      handled = vmm_handle_io(vcpu);
     } else {
       handled = VMEXIT_STOP;
     }

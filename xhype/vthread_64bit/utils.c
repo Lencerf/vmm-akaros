@@ -85,6 +85,13 @@ uint64_t simulate_paging(uint64_t cr0, uint64_t cr3, void *guest_mem,
   return gpa;
 }
 
+uint8_t *get_rip_h(hv_vcpuid_t vcpu) {
+  uint64_t rip = rreg(vcpu, HV_X86_RIP);
+  uint64_t cr3 = rreg(vcpu, HV_X86_CR3);
+  uint64_t cr0 = rreg(vcpu, HV_X86_CR0);
+  return (uint8_t *)simulate_paging(cr0, cr3, NULL, rip);
+}
+
 // Intel manuel, Volume 3, table 27-3
 uint64_t vmx_get_guest_reg(int vcpu, int ident) {
   switch (ident) {
@@ -291,8 +298,6 @@ void hvdump(int vcpu) {
          rvmcs(vcpu, VMCS_GUEST_GDTR_LIMIT));
   printf("VMCS_GUEST_GDTR_BASE:          0x%llx\n",
          rvmcs(vcpu, VMCS_GUEST_GDTR_BASE));
-  printf("reg gdt: 0x%llx, gdt_limit: 0x%llx\n", rreg(vcpu, HV_X86_GDT_BASE),
-         rreg(vcpu, HV_X86_GDT_LIMIT));
   printf("VMCS_GUEST_IDTR_LIMIT:         0x%llx\n",
          rvmcs(vcpu, VMCS_GUEST_LDTR_LIMIT));
   printf("VMCS_GUEST_IDTR_BASE:          0x%llx\n",

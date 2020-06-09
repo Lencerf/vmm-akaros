@@ -76,8 +76,21 @@ int vmm_handle_rdmsr(hv_vcpuid_t vcpu) {
   if (rcx == MSR_EFER) {
     value = rvmcs(vcpu, VMCS_GUEST_IA32_EFER);
     printf("efer= %llx to guest\n", value);
+  } else if (rcx == MSR_MCG_CAP || rcx == MSR_MCG_STATUS ||
+             rcx == MSR_MTRRcap || rcx == MSR_MTRRdefType ||
+             (rcx >= MSR_MTRR4kBase && rcx <= MSR_MTRR4kBase + 8) ||
+             rcx == MSR_MTRR16kBase || rcx == MSR_MTRR16kBase + 1 ||
+             rcx == MSR_MTRR64kBase || rcx == MSR_BIOS_SIGN ||
+             rcx == MSR_IA32_PLATFORM_ID || rcx == MSR_PKG_ENERGY_STATUS ||
+             rcx == MSR_PP0_ENERGY_STATUS || rcx == MSR_PP1_ENERGY_STATUS ||
+             rcx == MSR_DRAM_ENERGY_STATUS) {
+    value = 0;
   } else if (rcx == MSR_IA32_MISC_ENABLE) {
     value = misc_enable;
+  } else if (rcx == MSR_PLATFORM_INFO) {
+    value = platform_info;
+  } else if (rcx == MSR_TURBO_RATIO_LIMIT || rcx == MSR_TURBO_RATIO_LIMIT1) {
+    value = turbo_ratio_limit;
   } else {
     printf("read unknow msr: %llx\n", rcx);
     return VMEXIT_STOP;
@@ -97,9 +110,17 @@ int vmm_handle_wrmsr(hv_vcpuid_t vcpu) {
     uint64_t new_msr = ((uint64_t)rdx << 32) | rax;
     wvmcs(vcpu, VMCS_GUEST_IA32_EFER, new_msr);
     printf("write %llx to efer\n", new_msr);
-    return VMEXIT_NEXT;
+  } else if (rcx == MSR_MCG_CAP || rcx == MSR_MCG_STATUS ||
+             rcx == MSR_MTRRdefType ||
+             (rcx >= MSR_MTRR4kBase && rcx <= MSR_MTRR4kBase + 8) ||
+             rcx == MSR_MTRR16kBase || rcx == MSR_MTRR16kBase + 1 ||
+             rcx == MSR_MTRR64kBase || rcx == MSR_BIOS_SIGN ||
+             rcx == MSR_BIOS_UPDT_TRIG) {
+    printf("wrmsr %llx, do nothing\n", rcx);
+    ;  // do nothing
   } else {
     printf("write unkown msr: %llx\n", rcx);
     return VMEXIT_STOP;
   }
+  return VMEXIT_NEXT;
 }

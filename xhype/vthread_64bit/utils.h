@@ -24,14 +24,17 @@ void dbg_print_payload(const void* payload, int len);
 // }
 // }
 
-#define GUARD(x, r)                                     \
-  {                                                     \
-    uint64_t ret = (uint64_t)(x);                       \
-    if (ret != r) {                                     \
-      const char* comd = #x;                            \
-      print_red("%s = %llx, not %llx\n", comd, ret, r); \
-      exit(1);                                          \
-    }                                                   \
+#define UNUSED __attribute__((unused))
+
+#define GUARD(x, r)                                                           \
+  {                                                                           \
+    uint64_t ret = (uint64_t)(x);                                             \
+    if (ret != r) {                                                           \
+      const char* comd = #x;                                                  \
+      print_red("%s = 0x%llx = %lld, not 0x%llx = %lld\n", comd, ret, ret, r, \
+                r);                                                           \
+      exit(1);                                                                \
+    }                                                                         \
   }
 
 void dbg_print_qual(uint64_t qual);
@@ -43,6 +46,7 @@ void wvmcs(hv_vcpuid_t vcpu, uint32_t field, uint64_t v);
 void hvdump(int vcpu);
 uint64_t simulate_paging(uint64_t cr0, uint64_t cr3, void* guest_mem,
                          uint64_t gva);
+uint8_t* get_rip_h(hv_vcpuid_t vcpu);
 uint64_t vmx_get_guest_reg(int vcpu, int ident);
 uint64_t cap2ctrl(uint64_t cap, uint64_t ctrl);
 void print_bits(uint64_t num, int bits);

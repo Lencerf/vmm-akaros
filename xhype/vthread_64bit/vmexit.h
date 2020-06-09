@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "vmexit_cpuid.h"
+#include "vmexit_io.h"
 #include "vmexit_msr.h"
 
 #define VMEXIT_STOP 0

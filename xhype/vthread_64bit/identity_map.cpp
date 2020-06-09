@@ -289,7 +289,7 @@ bool map_address(uint64_t addr) {
       printf("%llx is not a valid host virtual address\n", addr);
     }
   } else {
-    printf("mach_vm_region = %lld\n", ret);
+    printf("mach_vm_region() = %d\n", ret);
     return false;
   }
 }

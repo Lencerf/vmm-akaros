@@ -76,4 +76,7 @@ int test_run_kernel() {
   run_vm(&(vkn.tf));
 }
 
-int main(int argc, char** argv) { test_run_kernel(); }
+int main(int argc, char** argv) {
+  test_run_kernel();
+  return 0;
+}

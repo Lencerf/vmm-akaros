@@ -88,10 +88,16 @@ int load_linux64(const struct virtual_machine* vm, struct vkernel* vkn,
   header->ramdisk_size = (uint32_t)rd_fstat.st_size;
   bp->ext_ramdisk_size = rd_fstat.st_size >> 32;
 
-  uint8_t* lowest_mem_h = valloc(0x9fc00);
+  // temporary debug setup
+  const uint64_t lowmem_size = 0x100000;
+  mach_vm_address_t lowest_mem_h_fixed = 0x300000000ULL;
+  GUARD(mach_vm_allocate(mach_task_self(), &lowest_mem_h_fixed, lowmem_size,
+                         VM_FLAGS_FIXED),
+        KERN_SUCCESS);
+  uint8_t* lowest_mem_h = (uint8_t*)lowest_mem_h_fixed;
 
-  bp->e820_map[0].addr = 0x0000000000000000;
-  bp->e820_map[0].size = 0x000000000009fc00;
+  bp->e820_map[0].addr = 0;
+  bp->e820_map[0].size = lowmem_size;
   bp->e820_map[0].type = 1;
 
   bp->e820_map[1].addr = rd_base;
@@ -130,7 +136,7 @@ int load_linux64(const struct virtual_machine* vm, struct vkernel* vkn,
   GUARD(hv_vm_map_space(vm->sid, (void*)guest_mem_h, guest_mem, mem_size,
                         HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC),
         HV_SUCCESS);
-  GUARD(hv_vm_map_space(vm->sid, lowest_mem_h, 0, 0x9fc00,
+  GUARD(hv_vm_map_space(vm->sid, lowest_mem_h, 0, lowmem_size,
                         HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC),
         HV_SUCCESS);
 
