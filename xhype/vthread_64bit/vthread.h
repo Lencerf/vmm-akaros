@@ -15,5 +15,7 @@ struct vthread {
 struct vthread* vthread_create(void* entry, void* arg);
 
 void vthread_join(struct vthread* vth, void** retval_loc);
-
+#define VTH_VMCALL_NULL 0
+#define VTH_VMCALL_PRINTC 1
+long vmcall(unsigned int vmcall_nr, ...);
 #endif

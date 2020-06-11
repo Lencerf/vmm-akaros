@@ -40,6 +40,16 @@ void* copy_str(void) {
   return NULL;
 }
 
+void* vmcall_printc(void) {
+  char nums[] = "123456789";
+  // vmcall(VTH_VMCALL_PRINTC, 'a');
+  for (int i = 0; i < sizeof(nums); i += 1) {
+    vmcall(VTH_VMCALL_PRINTC, nums[i]);
+  }
+  vmcall(VTH_VMCALL_PRINTC, '\n');
+  return NULL;
+}
+
 int test_vthread() {
   vth_init();
 
@@ -55,6 +65,8 @@ int test_vthread() {
   assert(len == strlen(TESTSTR));
   assert(memcmp(TESTSTR, str_copy, len) == 0);
   printf("b=%d, len=%zu, str_copy=%s\n", b, len, str_copy);
+  struct vthread* vth = vthread_create(vmcall_printc, NULL);
+  vthread_join(vth, NULL);
   return 0;
 }
 
@@ -77,6 +89,7 @@ int test_run_kernel() {
 }
 
 int main(int argc, char** argv) {
-  test_run_kernel();
+  // test_run_kernel();
+  test_vthread();
   return 0;
 }

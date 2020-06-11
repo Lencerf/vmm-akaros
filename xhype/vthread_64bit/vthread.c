@@ -258,6 +258,32 @@ void vcpu_long_mode(hv_vcpuid_t vcpu) {
   wvmcs(vcpu, VMCS_GUEST_IA32_EFER, efer);
 }
 
+long raw_vmcall(long arg0, long arg1, long arg2, long arg3, long arg4,
+                unsigned int vmcall_nr) {
+  long ret;
+  register long r8 asm("r8") = arg4;
+
+  asm volatile("vmcall"
+               : "=a"(ret)
+               : "a"(vmcall_nr), "D"(arg0), "S"(arg1), "d"(arg2), "c"(arg3),
+                 "r"(r8));
+  return ret;
+}
+
+long vmcall(unsigned int vmcall_nr, ...) {
+  va_list vl;
+  long a0, a1, a2, a3, a4;
+
+  va_start(vl, vmcall_nr);
+  a0 = va_arg(vl, long);
+  a1 = va_arg(vl, long);
+  a2 = va_arg(vl, long);
+  a3 = va_arg(vl, long);
+  a4 = va_arg(vl, long);
+  va_end(vl);
+  return raw_vmcall(a0, a1, a2, a3, a4, vmcall_nr);
+}
+
 void* vcpu_create_run(void* arg_vth) {
   struct vthread* vth = (struct vthread*)arg_vth;
   hv_vcpuid_t vcpu;
@@ -433,6 +459,17 @@ void* vcpu_create_run(void* arg_vth) {
         printf("write %llx to efer\n", new_msr);
       } else {
         printf("write unkown msr: %llx\n", rcx);
+        break;
+      }
+    } else if (exit_reason == VMX_REASON_VMCALL) {
+      print_red("VMX_REASON_VMCALL\n");
+      if (rax == VTH_VMCALL_PRINTC) {
+        // print to stderr because currently there are too many debug
+        // infomation to stdout
+        fprintf(stderr, "%c", rreg(vcpu, HV_X86_RDI));
+      } else if (rax == VTH_VMCALL_NULL) {
+        ;  // do nothing
+      } else {
         break;
       }
     } else {
