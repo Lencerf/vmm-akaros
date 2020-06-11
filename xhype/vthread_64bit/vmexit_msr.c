@@ -12,6 +12,9 @@ uint64_t misc_enable;
 uint64_t platform_info;
 uint64_t turbo_ratio_limit;
 
+#define NUM_VCPU 16
+uint64_t vcpu_msrs[NUM_VCPU];
+
 void vmx_msr_init(void) {
   uint64_t bus_freq, tsc_freq, ratio;
   size_t length;
@@ -68,6 +71,14 @@ void vmx_msr_init(void) {
   for (i = 0; i < 8; i++) {
     turbo_ratio_limit = (turbo_ratio_limit << 8) | ratio;
   }
+
+  for (i = 0; i < NUM_VCPU; i += 1) {
+    vcpu_msrs[i] =
+        PAT_VALUE(0, PAT_WRITE_BACK) | PAT_VALUE(1, PAT_WRITE_THROUGH) |
+        PAT_VALUE(2, PAT_UNCACHED) | PAT_VALUE(3, PAT_UNCACHEABLE) |
+        PAT_VALUE(4, PAT_WRITE_BACK) | PAT_VALUE(5, PAT_WRITE_THROUGH) |
+        PAT_VALUE(6, PAT_UNCACHED) | PAT_VALUE(7, PAT_UNCACHEABLE);
+  }
 }
 
 int vmm_handle_rdmsr(hv_vcpuid_t vcpu) {
@@ -75,7 +86,6 @@ int vmm_handle_rdmsr(hv_vcpuid_t vcpu) {
   uint64_t value;
   if (rcx == MSR_EFER) {
     value = rvmcs(vcpu, VMCS_GUEST_IA32_EFER);
-    printf("efer= %llx to guest\n", value);
   } else if (rcx == MSR_MCG_CAP || rcx == MSR_MCG_STATUS ||
              rcx == MSR_MTRRcap || rcx == MSR_MTRRdefType ||
              (rcx >= MSR_MTRR4kBase && rcx <= MSR_MTRR4kBase + 8) ||
@@ -91,33 +101,60 @@ int vmm_handle_rdmsr(hv_vcpuid_t vcpu) {
     value = platform_info;
   } else if (rcx == MSR_TURBO_RATIO_LIMIT || rcx == MSR_TURBO_RATIO_LIMIT1) {
     value = turbo_ratio_limit;
+  } else if (rcx == MSR_PAT) {
+    value = vcpu_msrs[vcpu];
   } else {
-    printf("read unknow msr: %llx\n", rcx);
+    printf("read unknow msr: 0x%llx\n", rcx);
     return VMEXIT_STOP;
   }
+  printf("rdmsr 0x%llx, return 0x%llx\n", rcx, value);
   uint32_t new_eax = (uint32_t)(value & ~0Ul);
   uint32_t new_edx = (uint32_t)(value >> 32);
   wreg(vcpu, HV_X86_RAX, new_eax);
   wreg(vcpu, HV_X86_RDX, new_edx);
   return VMEXIT_NEXT;
 }
+bool pat_valid(uint64_t val) {
+  int i, pa;
+
+  /*
+   * From Intel SDM: Table "Memory Types That Can Be Encoded With PAT"
+   *
+   * Extract PA0 through PA7 and validate that each one encodes a
+   * valid memory type.
+   */
+  for (i = 0; i < 8; i++) {
+    pa = (val >> (i * 8)) & 0xff;
+    if (pa == 2 || pa == 3 || pa >= 8) return (false);
+  }
+  return (true);
+}
 
 int vmm_handle_wrmsr(hv_vcpuid_t vcpu) {
   uint64_t rax = rreg(vcpu, HV_X86_RAX);
   uint64_t rcx = rreg(vcpu, HV_X86_RCX);
   uint64_t rdx = rreg(vcpu, HV_X86_RDX);
+  uint64_t new_msr = ((uint64_t)rdx << 32) | rax;
+  printf("wrmsr 0x%llx, new value = 0x%llx, ", rcx, new_msr);
   if (rcx == MSR_EFER) {
-    uint64_t new_msr = ((uint64_t)rdx << 32) | rax;
     wvmcs(vcpu, VMCS_GUEST_IA32_EFER, new_msr);
-    printf("write %llx to efer\n", new_msr);
+    printf("update efer\n");
   } else if (rcx == MSR_MCG_CAP || rcx == MSR_MCG_STATUS ||
              rcx == MSR_MTRRdefType ||
              (rcx >= MSR_MTRR4kBase && rcx <= MSR_MTRR4kBase + 8) ||
              rcx == MSR_MTRR16kBase || rcx == MSR_MTRR16kBase + 1 ||
              rcx == MSR_MTRR64kBase || rcx == MSR_BIOS_SIGN ||
              rcx == MSR_BIOS_UPDT_TRIG) {
-    printf("wrmsr %llx, do nothing\n", rcx);
+    printf("do nothing\n");
     ;  // do nothing
+  } else if (rcx == MSR_PAT) {
+    if (pat_valid(new_msr)) {
+      vcpu_msrs[vcpu] = new_msr;
+      printf("update pat of vcpu = %d\n", vcpu);
+    } else {
+      print_red("invalid pat value = %llx\n", new_msr);
+      return VMEXIT_STOP;
+    }
   } else {
     printf("write unkown msr: %llx\n", rcx);
     return VMEXIT_STOP;

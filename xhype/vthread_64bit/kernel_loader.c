@@ -73,14 +73,22 @@ int load_linux64(const struct virtual_machine* vm, struct vkernel* vkn,
 
   bp->alt_mem_k = mem_size >> 10;
 
+  // temporary debug setup
+  const uint64_t lowmem_size = 100 * MiB;
+  mach_vm_address_t lowest_mem_h_fixed = 0x300000000ULL;
+  GUARD(mach_vm_allocate(mach_task_self(), &lowest_mem_h_fixed, lowmem_size,
+                         VM_FLAGS_FIXED),
+        KERN_SUCCESS);
+  uint8_t* lowest_mem_h = (uint8_t*)lowest_mem_h_fixed;
+
   // load ramdisk
   uint64_t rd_base = 0x100000;
   struct stat rd_fstat;
   stat(initrd_path, &rd_fstat);
   size_t rd_region_size = ALIGNUP(rd_fstat.st_size, PAGE_SIZE);
-  uint64_t rd_base_h = vm_alloc(rd_region_size);
+  uint64_t rd_base_h = lowest_mem_h + rd_base;
   FILE* rd_fd = fopen(initrd_path, "r");
-  fread((void*)rd_base_h, rd_fstat.st_size, 1, rd_fd);
+  GUARD(fread((void*)rd_base_h, rd_fstat.st_size, 1, rd_fd), 1);
   fclose(rd_fd);
 
   header->ramdisk_image = rd_base;
@@ -88,20 +96,12 @@ int load_linux64(const struct virtual_machine* vm, struct vkernel* vkn,
   header->ramdisk_size = (uint32_t)rd_fstat.st_size;
   bp->ext_ramdisk_size = rd_fstat.st_size >> 32;
 
-  // temporary debug setup
-  const uint64_t lowmem_size = 0x100000;
-  mach_vm_address_t lowest_mem_h_fixed = 0x300000000ULL;
-  GUARD(mach_vm_allocate(mach_task_self(), &lowest_mem_h_fixed, lowmem_size,
-                         VM_FLAGS_FIXED),
-        KERN_SUCCESS);
-  uint8_t* lowest_mem_h = (uint8_t*)lowest_mem_h_fixed;
-
   bp->e820_map[0].addr = 0;
-  bp->e820_map[0].size = lowmem_size;
+  bp->e820_map[0].size = 0x9fc00;
   bp->e820_map[0].type = 1;
 
   bp->e820_map[1].addr = rd_base;
-  bp->e820_map[1].size = rd_region_size;
+  bp->e820_map[1].size = lowmem_size - rd_base;
   bp->e820_map[1].type = 1;
 
   bp->e820_map[2].addr = guest_mem;
@@ -130,9 +130,6 @@ int load_linux64(const struct virtual_machine* vm, struct vkernel* vkn,
     pdpte[i].pg_base = i;
   }
 
-  GUARD(hv_vm_map_space(vm->sid, (void*)rd_base_h, rd_base, rd_region_size,
-                        HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC),
-        HV_SUCCESS);
   GUARD(hv_vm_map_space(vm->sid, (void*)guest_mem_h, guest_mem, mem_size,
                         HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC),
         HV_SUCCESS);

@@ -209,6 +209,18 @@
 
 #define MSR_IA32_TSC_AUX 0xc0000103
 
+/*
+ * PAT modes.
+ */
+#define PAT_UNCACHEABLE 0x00
+#define PAT_WRITE_COMBINING 0x01
+#define PAT_WRITE_THROUGH 0x04
+#define PAT_WRITE_PROTECTED 0x05
+#define PAT_WRITE_BACK 0x06
+#define PAT_UNCACHED 0x07
+#define PAT_VALUE(i, m) ((long long)(m) << (8 * (i)))
+#define PAT_MASK(i) PAT_VALUE(i, 0xff)
+
 #define CPUID_0000_0000 (0x0)
 #define CPUID_0000_0001 (0x1)
 #define CPUID_0000_0002 (0x2)

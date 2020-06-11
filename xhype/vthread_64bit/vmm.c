@@ -262,6 +262,16 @@ void* run_vm(void* args) {
 
     uint64_t gpa = rvmcs(vcpu, VMCS_GUEST_PHYSICAL_ADDRESS);
     uint64_t gva = rvmcs(vcpu, VMCS_RO_GUEST_LIN_ADDR);
+    // temporary debug setup
+    const uint64_t rd_base = 0x100000;
+    const uint64_t rd_region_size = 0x742000;
+    const uint64_t low_memsize = 0x100000;
+    const uint64_t high_mem = 0x200000000;
+    const uint64_t low_mem_h = 0x300000000;
+
+    uint64_t last_ept_gpa = 0;
+    int ept_count = 0;
+
     if (exit_reason == VMX_REASON_EXC_NMI) {
       printf("VMX_REASON_EXC_NMI\n");
       uint32_t info = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_INFO);
@@ -277,6 +287,17 @@ void* run_vm(void* args) {
 
       // dbg_printf("VMX_REASON_IRQ\n");
       // dbg_print_exception_info(info, code);
+      // uint64_t cr3 = rvmcs(vcpu, VMCS_GUEST_CR3);
+      // uint64_t rip_gpa = simulate_paging(cr0, cr3, guest_mem0_h, rip);
+      // printf("rip_gpa = 0x%llx, instruction:\n", rip_gpa);
+      // if (rip_gpa < high_mem) {
+      //   print_payload(low_mem_h + rip_gpa, exit_instr_len);
+      //   print_payload(low_mem_h + rip_gpa + exit_instr_len, 16);
+      // } else {
+      //   print_payload(guest_mem0_h + rip_gpa - 16, 16);
+      //   print_payload(guest_mem0_h + rip_gpa, exit_instr_len);
+      //   print_payload(guest_mem0_h + rip_gpa + exit_instr_len, 16);
+      // }
       // printf("gpa = %llx, gva = %llx\n", gpa, gva);
       // uint64_t cr3 = rvmcs(vcpu, VMCS_GUEST_CR3);
       // uint64_t rip_h = simulate_paging(cr0, cr3, guest_mem0_h, rip);
@@ -290,13 +311,17 @@ void* run_vm(void* args) {
       //   handled = VMEXIT_STOP;
       // }
     } else if (exit_reason == VMX_REASON_EPT_VIOLATION) {
-      // temporary debug setup
-      const uint64_t rd_base = 0x100000;
-      const uint64_t rd_region_size = 0x742000;
-      const uint64_t low_memsize = 0x100000;
+      if (last_ept_gpa == gpa) {
+        ept_count += 1;
+      } else {
+        last_ept_gpa = gpa;
+      }
+      // printf("VMX_REASON_EPT_VIOLATION, gpa = %llx\n", gpa);
       if ((gpa < low_memsize) ||
           (gpa >= rd_base && gpa < rd_base + rd_region_size) ||
           (gpa >= 0x200000000 && gpa < 0x200000000 + 1 * GiB)) {
+        // printf("gpa = %llx, gva = %llx\n", gpa, gva);
+        // dbg_print_qual(qual);
         handled = VMEXIT_RESUME;
       } else {
         printf("gpa = %llx, gva = %llx\n", gpa, gva);
@@ -304,6 +329,14 @@ void* run_vm(void* args) {
         dbg_print_qual(qual);
         handled = VMEXIT_STOP;
       }
+      if (ept_count == 10) {
+        printf("gpa = %llx, gva = %llx\n", gpa, gva);
+        dbg_print_qual(qual);
+        handled = VMEXIT_STOP;
+      }
+      // if (gpa == 0x200cc4ff8) {
+      //   handled = VMEXIT_STOP;
+      // }
     } else if (exit_reason == VMX_REASON_MOV_CR) {
       handled = vmm_handle_move_cr(vcpu);
     } else if (exit_reason == VMX_REASON_RDMSR) {
@@ -322,10 +355,15 @@ void* run_vm(void* args) {
     }
     if (handled == VMEXIT_STOP) {
       uint64_t cr3 = rvmcs(vcpu, VMCS_GUEST_CR3);
-      uint64_t rip_h = simulate_paging(cr0, cr3, guest_mem0_h, rip);
+      uint64_t rip_gpa = simulate_paging(cr0, cr3, guest_mem0_h, rip);
       printf("instruction:\n");
-      print_payload(guest_mem0_h + rip_h, exit_instr_len);
-      print_payload(guest_mem0_h + rip_h + exit_instr_len, 16);
+      if (rip_gpa < high_mem) {
+        print_payload(low_mem_h + rip_gpa, exit_instr_len);
+        print_payload(low_mem_h + rip_gpa + exit_instr_len, 16);
+      } else {
+        print_payload(guest_mem0_h + rip_gpa, exit_instr_len);
+        print_payload(guest_mem0_h + rip_gpa + exit_instr_len, 16);
+      }
 
       printf("exit_reason = ");
       printf("other unhandled VMEXIT (%llu)\n", exit_reason);

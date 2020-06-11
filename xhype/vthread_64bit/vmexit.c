@@ -18,17 +18,26 @@ int vmm_handle_move_cr(hv_vcpuid_t vcpu) {
   if (qual_cr->cr_num == 0) {
     if (qual_cr->type == VMEXIT_QUAL_CR_TYPE_MOVETO) {
       uint64_t regval = vmx_get_guest_reg(vcpu, qual_cr->g_reg);
+      printf("regval = %llx\n", regval);
       regval |= cr0_ones_mask;
       regval &= ~cr0_zeros_mask;
       wvmcs(vcpu, VMCS_CTRL_CR0_SHADOW, regval);
       wvmcs(vcpu, VMCS_GUEST_CR0, regval);
       uint64_t efer = rvmcs(vcpu, VMCS_GUEST_IA32_EFER);
       if ((regval & X86_CR0_PG) && (efer & EFER_LME)) {
+        printf("turn on paging\n");
         efer |= EFER_LMA;
         wvmcs(vcpu, VMCS_GUEST_IA32_EFER, efer);
         uint64_t ctrl_entry = rvmcs(vcpu, VMCS_CTRL_VMENTRY_CONTROLS);
         wvmcs(vcpu, VMCS_CTRL_VMENTRY_CONTROLS,
               ctrl_entry | VMENTRY_GUEST_IA32E);
+      } else if (!(regval & X86_CR0_PG) && (efer & EFER_LMA)) {
+        printf("turn off paging\n");
+        efer &= ~EFER_LMA;
+        wvmcs(vcpu, VMCS_GUEST_IA32_EFER, efer);
+        uint64_t ctrl_entry = rvmcs(vcpu, VMCS_CTRL_VMENTRY_CONTROLS);
+        wvmcs(vcpu, VMCS_CTRL_VMENTRY_CONTROLS,
+              ctrl_entry & ~VMENTRY_GUEST_IA32E);
       }
     } else {
       print_red("qual_cr->type = %llx\n", qual_cr->type);
