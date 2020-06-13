@@ -89,7 +89,7 @@ int test_run_kernel() {
 }
 
 int main(int argc, char** argv) {
-  // test_run_kernel();
-  test_vthread();
+  test_run_kernel();
+  // test_vthread();
   return 0;
 }

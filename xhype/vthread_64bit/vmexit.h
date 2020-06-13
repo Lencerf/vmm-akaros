@@ -22,11 +22,11 @@ struct vmexit_qual_cr {
   uint64_t cr_num : 4;
   uint64_t type : 2;
   uint64_t lmsw_type : 1;
-  uint64_t resv7 : 1;
+  uint64_t : 1;
   uint64_t g_reg : 4;
-  uint64_t resv12 : 4;
+  uint64_t : 4;
   uint64_t lmsw_data : 16;
-  uint64_t resv32 : 32;
+  uint64_t : 32;
 };
 
 struct vmexit_intr_info {
@@ -34,7 +34,7 @@ struct vmexit_intr_info {
   uint32_t type : 3;
   uint32_t code_valid : 1;
   uint32_t nmi : 1;
-  uint32_t reserved : 18;
+  uint32_t : 18;
   uint32_t valid : 1;
 };
 
@@ -43,5 +43,14 @@ int vmm_handle_unknown(hv_vcpuid_t vcpu);
 int vmm_handle_move_cr(hv_vcpuid_t vcpu);
 
 int vmm_handle_exception(hv_vcpuid_t vcpu);
+
+int vmm_handle_mmio(hv_vcpuid_t vcpu);
+
 void vmm_exit_init();
+
+// ports
+#define IOPORT_PCI_CONFIG_ADDRESS 0x0cf8
+#define IOPORT_PCI_CONFIG_DATA 0x0cfc
+#define IOPORT_PCI_CONFIG_DATA2 0x0cfe
+
 #endif

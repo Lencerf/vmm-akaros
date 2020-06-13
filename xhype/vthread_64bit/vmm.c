@@ -316,7 +316,6 @@ void* run_vm(void* args) {
       } else {
         last_ept_gpa = gpa;
       }
-      // printf("VMX_REASON_EPT_VIOLATION, gpa = %llx\n", gpa);
       if ((gpa < low_memsize) ||
           (gpa >= rd_base && gpa < rd_base + rd_region_size) ||
           (gpa >= 0x200000000 && gpa < 0x200000000 + 1 * GiB)) {
@@ -324,10 +323,11 @@ void* run_vm(void* args) {
         // dbg_print_qual(qual);
         handled = VMEXIT_RESUME;
       } else {
-        printf("gpa = %llx, gva = %llx\n", gpa, gva);
-        dbg_printf("VMX_REASON_EPT_VIOLATION\n");
-        dbg_print_qual(qual);
-        handled = VMEXIT_STOP;
+        printf("VMX_REASON_EPT_VIOLATION, gpa = %llx\n", gpa);
+        // printf("gpa = %llx, gva = %llx\n", gpa, gva);
+        // dbg_printf("VMX_REASON_EPT_VIOLATION\n");
+        // dbg_print_qual(qual);
+        handled = vmm_handle_mmio(vcpu);
       }
       if (ept_count == 10) {
         printf("gpa = %llx, gva = %llx\n", gpa, gva);
@@ -346,7 +346,30 @@ void* run_vm(void* args) {
     } else if (exit_reason == VMX_REASON_CPUID) {
       handled = vmm_handle_cpuid(vcpu);
     } else if (exit_reason == VMX_REASON_IO) {
+      uint64_t qual_bits = rvmcs(vcpu, VMCS_RO_EXIT_QUALIFIC);
+      char buffer[100];
+      struct vmexit_qual_io* qual = (struct vmexit_qual_io*)&qual_bits;
+      uint32_t eax = rreg(vcpu, HV_X86_RAX);
+      if (qual->direction == VMEXIT_QUAL_IO_DIR_OUT) {
+        sprintf(&buffer[0], "vm write data %x to port %x, \n", eax, qual->port);
+        if (qual->port == 0xcf8) {
+          struct cf8_t* cf8 = (struct cf8_t*)&eax;
+          sprintf(buffer + strlen(buffer) - 1,
+                  "\nbus=%x, dev=%x,func=%x, offset=%x, size=%d\n", cf8->bus,
+                  cf8->dev, cf8->func, cf8->offset, qual->size_access + 1);
+        }
+      }
       handled = vmm_handle_io(vcpu);
+      if (qual->direction == VMEXIT_QUAL_IO_DIR_IN) {
+        uint32_t new_eax = rreg(vcpu, HV_X86_RAX);
+        if ((qual->size_access == 3 && new_eax != 0xffffffff) ||
+            (qual->size_access == 1 && (new_eax & 0xffff) != 0xffff) ||
+            (qual->size_access == 0 && (new_eax & 0xff) != 0xff)) {
+          fprintf(stderr, "%s", buffer);
+          fprintf(stderr, "vm get data %x from port %x, size=%d\n\n", new_eax,
+                  qual->port, qual->size_access + 1);
+        }
+      }
     } else {
       handled = VMEXIT_STOP;
     }
@@ -354,21 +377,12 @@ void* run_vm(void* args) {
       wvmcs(vcpu, VMCS_GUEST_RIP, rip + exit_instr_len);
     }
     if (handled == VMEXIT_STOP) {
-      uint64_t cr3 = rvmcs(vcpu, VMCS_GUEST_CR3);
-      uint64_t rip_gpa = simulate_paging(cr0, cr3, guest_mem0_h, rip);
-      printf("instruction:\n");
-      if (rip_gpa < high_mem) {
-        print_payload(low_mem_h + rip_gpa, exit_instr_len);
-        print_payload(low_mem_h + rip_gpa + exit_instr_len, 16);
-      } else {
-        print_payload(guest_mem0_h + rip_gpa, exit_instr_len);
-        print_payload(guest_mem0_h + rip_gpa + exit_instr_len, 16);
-      }
+      print_instr(vcpu, NULL);
 
       printf("exit_reason = ");
       printf("other unhandled VMEXIT (%llu)\n", exit_reason);
       printf("qual=%llx\n", qual);
-      hvdump(vcpu);
+      // hvdump(vcpu);
     }
   }
   return NULL;

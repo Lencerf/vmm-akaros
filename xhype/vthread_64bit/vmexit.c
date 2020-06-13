@@ -5,6 +5,7 @@
 #include <sys/sysctl.h>
 
 #include "cpuid.h"
+#include "lapic.h"
 #include "stdbool.h"
 #include "utils.h"
 #include "x86.h"
@@ -59,7 +60,30 @@ int vmm_handle_move_cr(hv_vcpuid_t vcpu) {
   return VMEXIT_NEXT;
 }
 
+typedef int (*mmio_reader)(uint64_t, int, uint64_t*);
+typedef int (*mmio_writer)(uint64_t, int, const uint64_t*);
+
+int vmm_emulate_instruction(hv_vcpuid_t vcpu, uint64_t gpa, mmio_reader reader,
+                            mmio_writer writer) {
+  // FIX ME: not finished
+  return VMEXIT_STOP;
+}
+
+int vmm_handle_mmio(hv_vcpuid_t vcpu) {
+  uint64_t gpa = rvmcs(vcpu, VMCS_GUEST_PHYSICAL_ADDRESS);
+  mmio_reader reader;
+  mmio_writer writer;
+  if (gpa >= APIC_BASE && gpa < APIC_BASE + PAGE_SIZE) {
+    reader = lapic_mmio_read;
+    writer = lapic_mmio_write;
+  } else {
+    return VMEXIT_STOP;
+  }
+  return vmm_emulate_instruction(vcpu, gpa, reader, writer);
+}
+
 void vmm_exit_init() {
   vmx_msr_init();
   vmm_host_state_init();
+  vmexit_io_init();  // FIX ME
 }

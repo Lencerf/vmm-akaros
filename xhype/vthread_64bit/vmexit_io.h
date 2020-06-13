@@ -1,5 +1,10 @@
 #ifndef __VMEXIT_IO_H__
 #define __VMEXIT_IO_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <Hypervisor/hv.h>
 #include <stdint.h>
 
@@ -26,5 +31,18 @@ struct vmexit_qual_io {
 };
 
 int vmm_handle_io(hv_vcpuid_t vcpu);
+void vmexit_io_init();
+struct cf8_t {
+  uint32_t offset : 8;
+  uint32_t func : 3;
+  uint32_t dev : 5;
+  uint32_t bus : 8;
+  uint32_t resv : 7;
+  uint32_t enable : 1;
+};
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

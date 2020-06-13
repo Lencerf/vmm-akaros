@@ -15,7 +15,7 @@ void print_green(const char* msg, ...);
 void print_red(const char* msg, ...);
 void print_payload(const void* payload, int len);
 void dbg_print_payload(const void* payload, int len);
-
+void print_instr(hv_vcpuid_t vcpu, void* guest_mem);
 // #define GUARD(cmd, r) {
 // uint64_t ret = (cmd);
 // if (ret != r) {

@@ -36,6 +36,17 @@ struct gva_t {
 
 //  }
 
+void print_instr(hv_vcpuid_t vcpu, void *guest_mem) {
+  uint64_t rip = rreg(vcpu, HV_X86_RIP);
+  uint64_t rip_h = simulate_paging(rreg(vcpu, HV_X86_CR0),
+                                   rreg(vcpu, HV_X86_CR3), guest_mem, rip);
+  uint64_t len = rvmcs(vcpu, VMCS_EXIT_INSTRUCTION_LENGTH);
+  printf("instructions:\n");
+  print_payload((void *)(rip_h - 16), 16);
+  print_payload((void *)rip_h, len);
+  print_payload((void *)(rip_h + len), 16);
+}
+
 uint64_t simulate_paging(uint64_t cr0, uint64_t cr3, void *guest_mem,
                          uint64_t gva) {
   if (!(cr0 & (1UL << 31))) {
@@ -495,11 +506,11 @@ void print_payload(const void *payload, int len) {
 }
 
 void print_bits(uint64_t num, int bits) {
-  for (int i = bits; i >= 0; i -= 1) {
+  for (int i = bits - 1; i >= 0; i -= 1) {
     printf("%3d ", i);
   }
   printf("\n");
-  for (int i = bits; i >= 0; i -= 1) {
+  for (int i = bits - 1; i >= 0; i -= 1) {
     printf("%3d ", (num & (1 << i)) > 0);
   }
   printf("\n");
