@@ -15,7 +15,7 @@ const uint64_t cr0_zeros_mask = (X86_CR0_NW | X86_CR0_CD);
 
 int vmm_handle_move_cr(hv_vcpuid_t vcpu) {
   uint64_t qual = rvmcs(vcpu, VMCS_RO_EXIT_QUALIFIC);
-  struct vmexit_qual_cr* qual_cr = (struct vmexit_qual_cr*)&qual;
+  struct vmexit_qual_cr *qual_cr = (struct vmexit_qual_cr *)&qual;
   if (qual_cr->cr_num == 0) {
     if (qual_cr->type == VMEXIT_QUAL_CR_TYPE_MOVETO) {
       uint64_t regval = vmx_get_guest_reg(vcpu, qual_cr->g_reg);
@@ -60,11 +60,13 @@ int vmm_handle_move_cr(hv_vcpuid_t vcpu) {
   return VMEXIT_NEXT;
 }
 
-typedef int (*mmio_reader)(uint64_t, int, uint64_t*);
-typedef int (*mmio_writer)(uint64_t, int, const uint64_t*);
-
 int vmm_emulate_instruction(hv_vcpuid_t vcpu, uint64_t gpa, mmio_reader reader,
                             mmio_writer writer) {
+  uint64_t rip_gpa = get_rip_h(vcpu);
+  uint8_t *opcode = (uint8_t *)rip_gpa;
+  if (opcode[0] >= 0x88 && opcode[9] <= 0x8b) {  // mov
+    // printf("move\n");
+  }
   // FIX ME: not finished
   return VMEXIT_STOP;
 }

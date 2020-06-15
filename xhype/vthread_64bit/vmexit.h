@@ -1,7 +1,12 @@
 #ifndef __VMEXIT_H__
 #define __VMEXIT_H__
+
 #include <Hypervisor/hv.h>
 #include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include "vmexit_cpuid.h"
 #include "vmexit_io.h"
@@ -52,5 +57,12 @@ void vmm_exit_init();
 #define IOPORT_PCI_CONFIG_ADDRESS 0x0cf8
 #define IOPORT_PCI_CONFIG_DATA 0x0cfc
 #define IOPORT_PCI_CONFIG_DATA2 0x0cfe
+
+typedef int (*mmio_reader)(uint64_t, int, uint64_t *);
+typedef int (*mmio_writer)(uint64_t, int, const uint64_t *);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

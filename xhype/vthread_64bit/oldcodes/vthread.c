@@ -53,8 +53,8 @@ void vth_init() {
   GUARD(mach_vm_allocate(mach_task_self(), &guest_stack_addr,
                          num_stack * GUEST_STACK_SIZE, VM_FLAGS_ANYWHERE),
         KERN_SUCCESS);
-  // setup_identity_map();
-  setup_pml4();
+  setup_identity_map();
+  // setup_pml4();
   // use mach_vm_region() to get the starting address of current process's text
   // and data
   // mach_vm_size_t region_size;
