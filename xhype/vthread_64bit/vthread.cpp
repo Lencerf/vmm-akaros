@@ -48,4 +48,10 @@ struct vthread* vthread_create(struct virtual_machine* vm, void* entry,
 
 void vthread_join(struct vthread* vth, void** retval_loc) {
   guest_thread_join(&vth->gth, retval_loc);
+  // free memory
+  for (auto pair : vth->gth.memory_maps) {
+    uint64_t hva = pair.first;
+    uint64_t size = pair.second.second;
+    GUARD(mach_vm_deallocate(mach_task_self(), hva, size), KERN_SUCCESS);
+  }
 }
