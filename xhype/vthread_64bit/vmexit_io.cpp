@@ -40,7 +40,8 @@ void set_all_one(uint64_t* rax, int size) {
   }
 }
 
-int pci_cf8(hv_vcpuid_t vcpu, struct vmexit_qual_io* qual) {
+int pci_cf8(hv_vcpuid_t vcpu, std::map<uint16_t, PCIDevice*>* pcd_bdf,
+            struct vmexit_qual_io* qual) {
   uint64_t rax = rreg(vcpu, HV_X86_RAX);
   if (qual->size_access != VMEXIT_QUAL_IO_BYTE_4) {
     if (qual->direction == VMEXIT_QUAL_IO_DIR_IN) {
@@ -58,22 +59,17 @@ int pci_cf8(hv_vcpuid_t vcpu, struct vmexit_qual_io* qual) {
   return VMEXIT_NEXT;
 }
 
-std::unordered_map<uint16_t, PCIDevice*> pcd_bdf;
-
-void add_pci_devf(uint16_t bdf, PCIDevice* devf) {
-  printf("add bdf = %x\n", bdf);
-  pcd_bdf[bdf] = devf;
-}
-
-int pci_cfc(hv_vcpuid_t vcpu, struct vmexit_qual_io* qual) {
+int pci_cfc(hv_vcpuid_t vcpu, std::map<uint16_t, PCIDevice*>* pcd_bdf,
+            struct vmexit_qual_io* qual) {
   uint64_t rax = rreg(vcpu, HV_X86_RAX);
+
   int size = qual->size_access + 1;  // Vol.3, table 27-5
   if (cf8.enable) {
     uint16_t bdf_key;  // bus/device/function key
     memcpy(&bdf_key, (uint8_t*)&cf8 + 1, sizeof(bdf_key));
     // print_cf8();
     // if (bdf_key == 0x1f00) fprintf(stderr, "bdf_key=%x\n", bdf_key);
-    if (pcd_bdf.find(bdf_key) == pcd_bdf.end()) {
+    if (pcd_bdf->find(bdf_key) == pcd_bdf->end()) {
       // if (bdf_key == 0x1f00) fprintf(stderr, "find no defice %x\n", bdf_key);
       if (qual->direction == VMEXIT_QUAL_IO_DIR_IN) {
         set_all_one(&rax, qual->size_access);
@@ -82,7 +78,7 @@ int pci_cfc(hv_vcpuid_t vcpu, struct vmexit_qual_io* qual) {
       // out, do nothing
     } else {
       // if (bdf_key == 0x1f00) fprintf(stderr, "find defice %x\n", bdf_key);
-      PCIDevice* devf = pcd_bdf[bdf_key];
+      PCIDevice* devf = (*pcd_bdf)[bdf_key];
       int offset = cf8.offset + (qual->port - IOPORT_PCI_CONFIG_DATA);
       if (qual->direction == VMEXIT_QUAL_IO_DIR_IN) {
         devf->read_cfg(offset, size, (uint32_t*)&rax);
@@ -101,14 +97,15 @@ int pci_cfc(hv_vcpuid_t vcpu, struct vmexit_qual_io* qual) {
   return VMEXIT_NEXT;
 }
 
-typedef int (*port_handler)(hv_vcpuid_t, struct vmexit_qual_io*);
+typedef int (*port_handler)(hv_vcpuid_t, std::map<uint16_t, PCIDevice*>*,
+                            struct vmexit_qual_io*);
 
 std::unordered_map<uint32_t, port_handler> handlers = {
     {IOPORT_PCI_CONFIG_ADDRESS, pci_cf8},
     {IOPORT_PCI_CONFIG_DATA, pci_cfc},
     {IOPORT_PCI_CONFIG_DATA2, pci_cfc}};
 
-int vmm_handle_io(hv_vcpuid_t vcpu) {
+int vmm_handle_io(struct virtual_machine* vm, hv_vcpuid_t vcpu) {
   uint64_t qual_bits = rvmcs(vcpu, VMCS_RO_EXIT_QUALIFIC);
   struct vmexit_qual_io* qual = (struct vmexit_qual_io*)&qual_bits;
   // printf("handle io at port %x, ", qual->port);
@@ -118,7 +115,7 @@ int vmm_handle_io(hv_vcpuid_t vcpu) {
   //   printf("out, ");
   // }
   if (handlers.find(qual->port) != handlers.end()) {
-    int r = handlers[qual->port](vcpu, qual);
+    int r = handlers[qual->port](vcpu, &vm->pcd_bdf, qual);
     // printf("eax = %llx\n", rreg(vcpu, HV_X86_RAX));
     return r;
   }
@@ -161,16 +158,4 @@ int vmm_handle_io(hv_vcpuid_t vcpu) {
   //   }
   // }
   return VMEXIT_STOP;
-}
-
-// FIX ME
-// temporarily add some device here, device should be attached to virtual
-// machines. we should use OOP...
-void vmexit_io_init() {
-  // host bridge on bus 0, dev 0, func 0
-  HostBridge* hostBridge = new HostBridge();
-  add_pci_devf(0, hostBridge);
-  // LPC on bus 0, dev 31, func 0
-  LPC* lpc = new LPC();
-  add_pci_devf(31U << 3, lpc);
 }

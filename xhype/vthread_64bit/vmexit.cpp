@@ -62,7 +62,7 @@ int vmm_handle_move_cr(hv_vcpuid_t vcpu) {
 
 int vmm_emulate_instruction(hv_vcpuid_t vcpu, uint64_t gpa, mmio_reader reader,
                             mmio_writer writer) {
-  uint64_t rip_gpa = get_rip_h(vcpu);
+  uint64_t rip_gpa = (uint64_t)get_rip_h(vcpu);
   uint8_t *opcode = (uint8_t *)rip_gpa;
   if (opcode[0] >= 0x88 && opcode[9] <= 0x8b) {  // mov
     // printf("move\n");
@@ -82,10 +82,4 @@ int vmm_handle_mmio(hv_vcpuid_t vcpu) {
     return VMEXIT_STOP;
   }
   return vmm_emulate_instruction(vcpu, gpa, reader, writer);
-}
-
-void vmm_exit_init() {
-  vmx_msr_init();
-  vmm_host_state_init();
-  vmexit_io_init();  // FIX ME
 }

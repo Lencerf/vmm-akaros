@@ -12,6 +12,7 @@ uint64_t misc_enable;
 uint64_t platform_info;
 uint64_t turbo_ratio_limit;
 
+// FIXME NUM_VCPU may dependend on specific machines
 #define NUM_VCPU 16
 uint64_t vcpu_msrs[NUM_VCPU];
 

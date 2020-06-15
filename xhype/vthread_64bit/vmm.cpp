@@ -2,13 +2,16 @@
 
 #include <sys/sysctl.h>
 
+#include "hostbridge.hpp"
+#include "lpc.hpp"
 #include "paging.h"
 #include "vmexit.h"
 #include "vthread_hlt.h"
 
 void vmm_init() {
   GUARD(hv_vm_create(HV_VM_DEFAULT), HV_SUCCESS);
-  vmm_exit_init();
+  vmexit_cpuid_host_state_init();
+  vmx_msr_init();
 }
 
 void gpa2hva_ident(hv_vm_space_t sid) {
@@ -52,6 +55,13 @@ void gpa2hva_ident(hv_vm_space_t sid) {
 void vm_init(struct virtual_machine* vm) {
   GUARD(hv_vm_space_create(&(vm->mem_sid)), HV_SUCCESS);
   gpa2hva_ident(vm->mem_sid);
+
+  // host bridge on bus 0, dev 0, func 0
+  HostBridge* hostBridge = new HostBridge();
+  vm->pcd_bdf[0] = hostBridge;
+  // LPC on bus 0, dev 31, func 0
+  LPC* lpc = new LPC();
+  vm->pcd_bdf[31U << 3] = lpc;
 }
 
 void vcpu_longmode(hv_vcpuid_t vcpu) {
@@ -275,7 +285,7 @@ void* run_guest(void* args) {
                   cf8->dev, cf8->func, cf8->offset, qual->size_access + 1);
         }
       }
-      handled = vmm_handle_io(vcpu);
+      handled = vmm_handle_io(gth->vm, vcpu);
       if (qual->direction == VMEXIT_QUAL_IO_DIR_IN) {
         uint32_t new_eax = rreg(vcpu, HV_X86_RAX);
         if ((qual->size_access == 3 && new_eax != 0xffffffff) ||

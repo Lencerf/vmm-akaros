@@ -4,13 +4,14 @@
 #include <Hypervisor/hv.h>
 #include <mach/mach.h>
 #include <pthread.h>
+#include <stdio.h>
 
-#include <cstdint>
 #include <map>
 #include <mutex>
 #include <utility>
 
 #include "constants.h"
+#include "pci_device.hpp"
 #include "utils.h"
 #include "vmexit.h"
 #include "x86.h"
@@ -20,6 +21,7 @@ struct virtual_machine {
   std::map<uint64_t, std::pair<uint64_t, uint64_t>>
       mem_map;     // hva -> (gpa, size)
   std::mutex mtx;  // memory map lock
+  std::map<uint16_t, PCIDevice*> pcd_bdf;
 };
 
 #define TYPE_VTHREAD 0

@@ -1,12 +1,15 @@
 #ifndef __VMEXIT_IO_H__
 #define __VMEXIT_IO_H__
 
+#include "vmm.hpp"
+#include <stdint.h>
+#include <Hypervisor/hv.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#include <Hypervisor/hv.h>
-#include <stdint.h>
+
 
 enum {
   VMEXIT_QUAL_IO_BYTE_1 = 0,
@@ -30,8 +33,7 @@ struct vmexit_qual_io {
   uint16_t rsvd2[2];
 };
 
-int vmm_handle_io(hv_vcpuid_t vcpu);
-void vmexit_io_init();
+int vmm_handle_io(struct virtual_machine* vm, hv_vcpuid_t vcpu);
 struct cf8_t {
   uint32_t offset : 8;
   uint32_t func : 3;

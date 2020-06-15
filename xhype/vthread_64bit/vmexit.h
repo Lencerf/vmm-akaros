@@ -4,10 +4,6 @@
 #include <Hypervisor/hv.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include "vmexit_cpuid.h"
 #include "vmexit_io.h"
 #include "vmexit_msr.h"
@@ -47,8 +43,6 @@ int vmm_handle_unknown(hv_vcpuid_t vcpu);
 
 int vmm_handle_move_cr(hv_vcpuid_t vcpu);
 
-int vmm_handle_exception(hv_vcpuid_t vcpu);
-
 int vmm_handle_mmio(hv_vcpuid_t vcpu);
 
 void vmm_exit_init();
@@ -60,9 +54,5 @@ void vmm_exit_init();
 
 typedef int (*mmio_reader)(uint64_t, int, uint64_t *);
 typedef int (*mmio_writer)(uint64_t, int, const uint64_t *);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif

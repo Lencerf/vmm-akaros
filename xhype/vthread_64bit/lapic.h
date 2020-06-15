@@ -5,6 +5,10 @@
 
 #include "constants.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define APIC_BASE 0xfee00000
 bool lapic_mmio(hv_vcpuid_t vcpu);
 
@@ -14,4 +18,7 @@ int lapic_mmio_read(uint64_t gpa, int size, uint64_t* value);
 
 int lapic_mmio_write(uint64_t gpa, int size, const uint64_t* value);
 
+#ifdef __cplusplus
+}
+#endif
 #endif

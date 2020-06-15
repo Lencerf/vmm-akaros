@@ -36,7 +36,7 @@ struct xsave_limits {
 
 static struct xsave_limits vmm_xsave_limits;
 
-void vmm_host_state_init(void) {
+void vmexit_cpuid_host_state_init(void) {
   uint32_t avx1_0, regs[4];
   size_t ln;
 
@@ -61,6 +61,7 @@ int vmm_handle_cpuid(hv_vcpuid_t vcpu) {
   int level, width;
   unsigned int logical_cpus;
   uint32_t cpu_feature, cpu_high, cpu_exthigh;
+  uint32_t x2apic_id;
 
   const uint32_t tsc_is_invariant = 1;
   const uint32_t smp_tsc = 1;
@@ -326,7 +327,7 @@ int vmm_handle_cpuid(hv_vcpuid_t vcpu) {
       logical_cpus = 0;
       width = 0;
       level = 0;
-      uint32_t x2apic_id = 0;
+      x2apic_id = 0;
 
       if (ecx == 0) {
         logical_cpus = threads_per_core;
@@ -410,7 +411,8 @@ int vmm_handle_cpuid(hv_vcpuid_t vcpu) {
     case 0x40000000:
 
       regs[0] = CPUID_VM_HIGH;
-      const char bhyve_id[12] = "bhyve bhyve ";
+      char bhyve_id[12];
+      memcpy(bhyve_id, "bhyve bhyve ", sizeof(bhyve_id));
       bcopy(bhyve_id, &regs[1], 4);
       bcopy(bhyve_id + 4, &regs[2], 4);
       bcopy(bhyve_id + 8, &regs[3], 4);
@@ -557,16 +559,4 @@ int vmm_handle_cpuid_old(hv_vcpuid_t vcpu) {
   wreg(vcpu, HV_X86_RCX, regs[2]);
   wreg(vcpu, HV_X86_RDX, regs[3]);
   return VMEXIT_NEXT;
-}
-
-int vmm_handle_exception(hv_vcpuid_t vcpu) {
-  uint64_t info_bits = rvmcs(vcpu, VMCS_RO_VMEXIT_IRQ_INFO);
-  uint64_t qual = rvmcs(vcpu, VMCS_RO_EXIT_QUALIFIC);
-  struct vmexit_intr_info* info = (struct vmexit_intr_info*)&info_bits;
-  if (info->vector == 14) {
-    wreg(vcpu, HV_X86_CR2, qual);
-    // VMCS_CTRL_VMENTRY_IRQ_INFO
-    // VMCS_CTRL_VMENTRY_EXC_ERROR
-  }
-  return VMEXIT_STOP;
 }
