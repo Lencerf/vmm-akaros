@@ -33,6 +33,8 @@
 /vmm
 
 # xhype
+xhype/vthread-rs/target
+xhype/vthread-rs/Cargo.lock
 xhype/vthread_64bit/build
 xhype/vthread_64bit/test
 CMakeLists.txt.user
