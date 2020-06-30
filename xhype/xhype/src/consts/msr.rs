@@ -222,29 +222,29 @@ pub const MSR_PP1_POLICY: u32 = 0x00000642;
 
 pub const MSR_AMD64_MC0_MASK: u32 = 0xc0010044;
 
-pub fn MSR_IA32_MCx_CTL(x: u32) -> u32 {
+pub fn msr_ia32_mcx_ctl(x: u32) -> u32 {
     MSR_IA32_MC0_CTL + 4 * x
 }
 
-pub fn MSR_IA32_MCx_STATUS(x: u32) -> u32 {
+pub fn msr_ia32_mcx_status(x: u32) -> u32 {
     MSR_IA32_MC0_STATUS + 4 * x
 }
 
-pub fn MSR_IA32_MCx_ADDR(x: u32) -> u32 {
+pub fn msr_ia32_mcx_addr(x: u32) -> u32 {
     MSR_IA32_MC0_ADDR + 4 * x
 }
 
-pub fn MSR_IA32_MCx_MISC(x: u32) -> u32 {
+pub fn msr_ia32_mcx_misc(x: u32) -> u32 {
     MSR_IA32_MC0_MISC + 4 * x
 }
 
-pub fn MSR_AMD64_MCx_MASK(x: u32) -> u32 {
+pub fn msr_amd64_mcx_mask(x: u32) -> u32 {
     MSR_AMD64_MC0_MASK + x
 }
 
 /* These are consecutive and not in the normal 4er MCE bank block */
 pub const MSR_IA32_MC0_CTL2: u32 = 0x00000280;
-pub fn MSR_IA32_MCx_CTL2(x: u32) -> u32 {
+pub fn msr_ia32_mcx_ctl2(x: u32) -> u32 {
     MSR_IA32_MC0_CTL2 + (x)
 }
 
