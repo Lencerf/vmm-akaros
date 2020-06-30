@@ -2,24 +2,24 @@
 /* CPU model specific register (MSR) numbers */
 
 /* x86-64 specific MSRs */
-pub const MSR_EFER:u32 = 		0xc0000080	/* extended feature register */;
-pub const MSR_STAR:u32 = 		0xc0000081	/* legacy mode SYSCALL target */;
-pub const MSR_LSTAR:u32 = 		0xc0000082	/* long mode SYSCALL target */;
-pub const MSR_CSTAR:u32 = 		0xc0000083	/* compat mode SYSCALL target */;
-pub const MSR_SYSCALL_MASK:u32 = 	0xc0000084	/* EFLAGS mask for syscall */;
-pub const MSR_FS_BASE:u32 = 		0xc0000100	/* 64bit FS base */;
-pub const MSR_GS_BASE:u32 = 		0xc0000101	/* 64bit GS base */;
-pub const MSR_KERNEL_GS_BASE:u32 = 	0xc0000102	/* SwapGS GS shadow */;
-pub const MSR_TSC_AUX:u32 = 		0xc0000103	/* Auxiliary TSC */;
+pub const MSR_EFER: u32 = 0xc0000080; /* extended feature register */
+pub const MSR_STAR: u32 = 0xc0000081; /* legacy mode SYSCALL target */
+pub const MSR_LSTAR: u32 = 0xc0000082; /* long mode SYSCALL target */
+pub const MSR_CSTAR: u32 = 0xc0000083; /* compat mode SYSCALL target */
+pub const MSR_SYSCALL_MASK: u32 = 0xc0000084; /* EFLAGS mask for syscall */
+pub const MSR_FS_BASE: u32 = 0xc0000100; /* 64bit FS base */
+pub const MSR_GS_BASE: u32 = 0xc0000101; /* 64bit GS base */
+pub const MSR_KERNEL_GS_BASE: u32 = 0xc0000102; /* SwapGS GS shadow */
+pub const MSR_TSC_AUX: u32 = 0xc0000103; /* Auxiliary TSC */
 
 /* EFER bits: */
-pub const _EFER_SCE:u32 = 		0	/* SYSCALL/SYSRET */;
-pub const _EFER_LME:u32 = 		8	/* Long mode enable */;
-pub const _EFER_LMA:u32 = 		10	/* Long mode active (read-only) */;
-pub const _EFER_NX:u32 = 		11	/* No execute enable */;
-pub const _EFER_SVME:u32 = 		12	/* Enable virtualization */;
-pub const _EFER_LMSLE:u32 = 		13	/* Long Mode Segment Limit Enable */;
-pub const _EFER_FFXSR:u32 = 		14	/* Enable Fast FXSAVE/FXRSTOR */;
+pub const _EFER_SCE: u32 = 0; /* SYSCALL/SYSRET */
+pub const _EFER_LME: u32 = 8; /* Long mode enable */
+pub const _EFER_LMA: u32 = 10; /* Long mode active (read-only) */
+pub const _EFER_NX: u32 = 11; /* No execute enable */
+pub const _EFER_SVME: u32 = 12; /* Enable virtualization */
+pub const _EFER_LMSLE: u32 = 13; /* Long Mode Segment Limit Enable */
+pub const _EFER_FFXSR: u32 = 14; /* Enable Fast FXSAVE/FXRSTOR */
 
 pub const EFER_SCE: u32 = (1 << _EFER_SCE);
 pub const EFER_LME: u32 = (1 << _EFER_LME);
@@ -171,8 +171,8 @@ pub const MSR_LAPIC_SELF_IPI: u32 = 0x0000083f;
 pub const MSR_LAPIC_END: u32 = (MSR_LAPIC_SELF_IPI + 1);
 
 /* DEBUGCTLMSR bits (others vary by model): */
-pub const DEBUGCTLMSR_LBR:u32 = 			(1 <<  0)/* last branch recording */;
-pub const DEBUGCTLMSR_BTF:u32 = 			(1 <<  1)/* single-step on branches */;
+pub const DEBUGCTLMSR_LBR: u32 = (1 << 0); /* last branch recording */
+pub const DEBUGCTLMSR_BTF: u32 = (1 << 1); /* single-step on branches */
 pub const DEBUGCTLMSR_TR: u32 = (1 << 6);
 pub const DEBUGCTLMSR_BTS: u32 = (1 << 7);
 pub const DEBUGCTLMSR_BTINT: u32 = (1 << 8);
@@ -193,9 +193,9 @@ pub const MSR_CORE_C3_RESIDENCY: u32 = 0x000003fc;
 pub const MSR_CORE_C6_RESIDENCY: u32 = 0x000003fd;
 pub const MSR_CORE_C7_RESIDENCY: u32 = 0x000003fe;
 pub const MSR_PKG_C2_RESIDENCY: u32 = 0x0000060d;
-pub const MSR_PKG_C8_RESIDENCY:u32 = 		0x00000630	/* HSW-ULT only */;
-pub const MSR_PKG_C9_RESIDENCY:u32 = 		0x00000631	/* HSW-ULT only */;
-pub const MSR_PKG_C10_RESIDENCY:u32 = 		0x00000632	/* HSW-ULT only */;
+pub const MSR_PKG_C8_RESIDENCY: u32 = 0x00000630; /* HSW-ULT only */
+pub const MSR_PKG_C9_RESIDENCY: u32 = 0x00000631; /* HSW-ULT only */
+pub const MSR_PKG_C10_RESIDENCY: u32 = 0x00000632; /* HSW-ULT only */
 
 /* Run Time Average Power Limiting (RAPL) Interface */
 
@@ -222,16 +222,31 @@ pub const MSR_PP1_POLICY: u32 = 0x00000642;
 
 pub const MSR_AMD64_MC0_MASK: u32 = 0xc0010044;
 
-// pub const MSR_IA32_MCx_CTL(x):u32 = 		(MSR_IA32_MC0_CTL + 4*(x));
-// pub const MSR_IA32_MCx_STATUS(x):u32 = 		(MSR_IA32_MC0_STATUS + 4*(x));
-// pub const MSR_IA32_MCx_ADDR(x):u32 = 		(MSR_IA32_MC0_ADDR + 4*(x));
-// pub const MSR_IA32_MCx_MISC(x):u32 = 		(MSR_IA32_MC0_MISC + 4*(x));
+pub fn MSR_IA32_MCx_CTL(x: u32) -> u32 {
+    MSR_IA32_MC0_CTL + 4 * x
+}
 
-// pub const MSR_AMD64_MCx_MASK(x):u32 = 		(MSR_AMD64_MC0_MASK + (x));
+pub fn MSR_IA32_MCx_STATUS(x: u32) -> u32 {
+    MSR_IA32_MC0_STATUS + 4 * x
+}
+
+pub fn MSR_IA32_MCx_ADDR(x: u32) -> u32 {
+    MSR_IA32_MC0_ADDR + 4 * x
+}
+
+pub fn MSR_IA32_MCx_MISC(x: u32) -> u32 {
+    MSR_IA32_MC0_MISC + 4 * x
+}
+
+pub fn MSR_AMD64_MCx_MASK(x: u32) -> u32 {
+    MSR_AMD64_MC0_MASK + x
+}
 
 /* These are consecutive and not in the normal 4er MCE bank block */
 pub const MSR_IA32_MC0_CTL2: u32 = 0x00000280;
-// pub const MSR_IA32_MCx_CTL2(x):u32 = 		(MSR_IA32_MC0_CTL2 + (x));
+pub fn MSR_IA32_MCx_CTL2(x: u32) -> u32 {
+    MSR_IA32_MC0_CTL2 + (x)
+}
 
 pub const MSR_P6_PERFCTR0: u32 = 0x000000c1;
 pub const MSR_P6_PERFCTR1: u32 = 0x000000c2;
@@ -269,7 +284,7 @@ pub const MSR_AMD64_IBSOP_REG_COUNT: u32 = 7;
 pub const MSR_AMD64_IBSOP_REG_MASK: u32 = ((1 << MSR_AMD64_IBSOP_REG_COUNT) - 1);
 pub const MSR_AMD64_IBSCTL: u32 = 0xc001103a;
 pub const MSR_AMD64_IBSBRTARGET: u32 = 0xc001103b;
-pub const MSR_AMD64_IBS_REG_COUNT_MAX:u32 = 	8	/* includes MSR_AMD64_IBSBRTARGET */;
+pub const MSR_AMD64_IBS_REG_COUNT_MAX: u32 = 8; /* includes MSR_AMD64_IBSBRTARGET */
 
 /* Fam 15h MSRs */
 pub const MSR_F15H_PERF_CTL: u32 = 0xc0010200;
@@ -292,9 +307,9 @@ pub const MSR_K8_INT_PENDING_MSG: u32 = 0xc0010055;
 /* C1E active bits in int pending message */
 pub const K8_INTP_C1E_ACTIVE_MASK: u32 = 0x18000000;
 pub const MSR_K8_TSEG_ADDR: u32 = 0xc0010112;
-pub const K8_MTRRFIXRANGE_DRAM_ENABLE:u32 = 	0x00040000	/* MtrrFixDramEn bit    */;
-pub const K8_MTRRFIXRANGE_DRAM_MODIFY:u32 = 	0x00080000	/* MtrrFixDramModEn bit */;
-pub const K8_MTRR_RDMEM_WRMEM_MASK:u32 = 	0x18181818	/* Mask: RdMem|WrMem    */;
+pub const K8_MTRRFIXRANGE_DRAM_ENABLE: u32 = 0x00040000; /* MtrrFixDramEn bit    */
+pub const K8_MTRRFIXRANGE_DRAM_MODIFY: u32 = 0x00080000; /* MtrrFixDramModEn bit */
+pub const K8_MTRR_RDMEM_WRMEM_MASK: u32 = 0x18181818; /* Mask: RdMem|WrMem    */
 
 /* K7 MSRs */
 pub const MSR_K7_EVNTSEL0: u32 = 0xc0010000;
@@ -548,7 +563,7 @@ pub const MSR_P4_RAT_ESCR1: u32 = 0x000003bd;
 pub const MSR_P4_SAAT_ESCR0: u32 = 0x000003ae;
 pub const MSR_P4_SAAT_ESCR1: u32 = 0x000003af;
 pub const MSR_P4_SSU_ESCR0: u32 = 0x000003be;
-pub const MSR_P4_SSU_ESCR1:u32 = 		0x000003bf	/* guess: not in manual */;
+pub const MSR_P4_SSU_ESCR1: u32 = 0x000003bf; /* guess: not in manual */
 
 pub const MSR_P4_TBPU_ESCR0: u32 = 0x000003c2;
 pub const MSR_P4_TBPU_ESCR1: u32 = 0x000003c3;
