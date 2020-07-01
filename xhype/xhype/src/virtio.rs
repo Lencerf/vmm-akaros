@@ -124,11 +124,11 @@ struct VRingUsed {
     // ring: [VRingUsedElem], //size not available at compile time
 }
 
-struct VRing<'a> {
+struct VRing {
     num: u32,
-    desc: &'a [VRingDesc],
-    avail: &'a VRingAvail,
-    used: &'a VRingUsed,
+    desc: *const VRingDesc,
+    avail: *const VRingAvail,
+    used: *const VRingUsed,
 }
 
 struct VirtioVq {
@@ -136,10 +136,11 @@ struct VirtioVq {
     qnum_max: u32,
     qready: u32,
     last_avail: u16,
+    vring: VRing,
 }
 
 // virtio-v1.0-cs04 s4 Device types
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VirtioId {
     Reserved = 0,
     Net = 1,
@@ -263,7 +264,7 @@ fn virtio_mmio_read(dev: Arc<RwLock<VirtioMmioDev>>, gpa: usize, size: u8) -> u3
     }
 
     // virtio-v1.0-cs04 s4.2.3.1.1 Device Initialization (MMIO section)
-    if dev.vqdev.dev_id as u32 == 0
+    if dev.vqdev.dev_id == VirtioId::Reserved
         && offset != VIRTIO_MMIO_MAGIC_VALUE
         && offset != VIRTIO_MMIO_VERSION
         && offset != VIRTIO_MMIO_DEVICE_ID
@@ -414,13 +415,85 @@ fn virtio_mmio_read(dev: Arc<RwLock<VirtioMmioDev>>, gpa: usize, size: u8) -> u3
     }
 }
 
-fn virtio_mmio_write(
-    _gth: &GuestThread,
-    _gpa: usize,
-    _reg_val: &mut u64,
-    _size: u8,
-) -> Result<(), Error> {
-    unimplemented!()
+fn virtio_mmio_write(dev: Arc<RwLock<VirtioMmioDev>>, gpa: usize, size: u8, value: u32) {
+    let mut dev = dev.write().unwrap();
+    let offset = gpa - dev.addr as usize;
+
+    if dev.vqdev.dev_id == VirtioId::Reserved {
+        error!("attempt to write to a reserved device");
+    }
+
+    if offset != VIRTIO_MMIO_STATUS && dev.status & VIRTIO_CONFIG_S_FAILED > 0 {
+        warn!("The FAILED status bit is set.");
+    }
+
+    match offset {
+        VIRTIO_MMIO_DEVICE_FEATURES_SEL => dev.dev_feat_sel = value,
+        VIRTIO_MMIO_DRIVER_FEATURES => {
+            if dev.status & VIRTIO_CONFIG_S_FEATURES_OK > 0 {
+                error!(
+                    "The driver is not allowed to activate new features after \
+                setting FEATURES_OK"
+                );
+            } else if dev.dri_feat_sel > 0 {
+                dev.vqdev.dri_feat &= 0xffffffff;
+                dev.vqdev.dri_feat |= (value as u64) << 32;
+            } else {
+                dev.vqdev.dri_feat &= 0xffffffffu64 << 32;
+                dev.vqdev.dri_feat |= value as u64;
+            }
+        }
+        VIRTIO_MMIO_DRIVER_FEATURES_SEL => dev.dri_feat_sel = value,
+        VIRTIO_MMIO_QUEUE_SEL => dev.qsel = value,
+        VIRTIO_MMIO_QUEUE_NUM => {
+            let qsel = dev.qsel as usize;
+            if qsel < dev.vqdev.vqs.len() {
+                let vq = &mut dev.vqdev.vqs[qsel];
+                if value <= vq.qnum_max {
+                    vq.vring.num = value;
+                } else {
+                    error!(
+                        "write a value to QueueNum which is greater than \
+                    QueueNumMax"
+                    );
+                }
+            } else {
+                error!("qsel has an invalid value. qsel >= vqs.len()");
+            }
+        }
+        VIRTIO_MMIO_QUEUE_READY => {
+            let qsel = dev.qsel as usize;
+            if qsel < dev.vqdev.vqs.len() {
+                let vq = &dev.vqdev.vqs[qsel];
+                if vq.qready == 0x0 && value == 0x1 {
+                    // build a thread to serve the driver
+                    unimplemented!();
+                } else if vq.qready == 0x1 && value == 0x0 {
+                    error!("revoking QueueReady is not supported!");
+                }
+            } else {
+                error!("qsel has an invalid value. qsel >= vqs.len()");
+            }
+        }
+        VIRTIO_MMIO_QUEUE_NOTIFY => {
+            if dev.status & VIRTIO_CONFIG_S_DRIVER_OK == 0 {
+                error!("{} notify device before DRIVER_OK is set", dev.vqdev.name);
+            } else if value < dev.vqdev.vqs.len() as u32 {
+                // let the corresponding thread to process data
+                unimplemented!()
+            }
+        }
+        VIRTIO_MMIO_INTERRUPT_ACK => {
+            if value & !0x3 > 0 {
+                error!(
+                    "{} set undefined bits in InterruptAck register",
+                    dev.vqdev.name
+                );
+            }
+            dev.isr &= !value;
+        }
+        _ => unimplemented!(),
+    }
 }
 
 pub fn virtio_mmio(
