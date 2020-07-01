@@ -133,11 +133,36 @@ struct VRing<'a> {
 
 struct VirtioVq {
     name: String,
+    qnum_max: u32,
+    qready: u32,
+    last_avail: u16,
+}
+
+// virtio-v1.0-cs04 s4 Device types
+#[derive(Debug, Clone, Copy)]
+enum VirtioId {
+    Reserved = 0,
+    Net = 1,
+    Block = 2,
+    Console = 3,
+    Entropy = 4,
+    BalloonTraditional = 5,
+    IoMemory = 6,
+    RpMsg = 7,
+    ScsiHost = 8,
+    Transport9P = 9, // 9P transport
+    Mac80211Wlan = 10,
+    RProcSerial = 11,
+    Caif = 12,
+    Balloon = 13,
+    GPU = 16,
+    Timer = 17,
+    Input = 18,
 }
 
 struct VirtioVqDev {
     name: String,
-    dev_id: u32,
+    dev_id: VirtioId,
     dev_feat: u64,
     dri_feat: u64,
     cfg: Vec<u32>,
@@ -203,6 +228,18 @@ pub const VIRT_MMIO_VERSION: u32 = 0x2;
 
 pub const VIRT_MMIO_VENDOR: u32 = 0x52414B41; /* 'AKAR' */
 
+fn virtio_validate_feat(vqdev: &VirtioVqDev, feat: u64) -> Result<(), &'static str> {
+    match vqdev.dev_id {
+        VirtioId::Console | VirtioId::Net | VirtioId::Block => {}
+        VirtioId::Reserved => return Err("reserved device"),
+        _ => return Err("not implemented"),
+    }
+    if feat & (1 << VIRTIO_F_VERSION_1) == 0 {
+        return Err("A device must offer the VIRTIO_F_VERSION_1 feature bit");
+    }
+    Ok(())
+}
+
 fn virtio_mmio_read(dev: Arc<RwLock<VirtioMmioDev>>, gpa: usize, size: u8) -> u32 {
     let mask: u32 = match size {
         1 => 0xff,
@@ -225,12 +262,17 @@ fn virtio_mmio_read(dev: Arc<RwLock<VirtioMmioDev>>, gpa: usize, size: u8) -> u3
         } & mask;
     }
 
-    if dev.vqdev.dev_id == 0
+    // virtio-v1.0-cs04 s4.2.3.1.1 Device Initialization (MMIO section)
+    if dev.vqdev.dev_id as u32 == 0
         && offset != VIRTIO_MMIO_MAGIC_VALUE
         && offset != VIRTIO_MMIO_VERSION
         && offset != VIRTIO_MMIO_DEVICE_ID
     {
-        error!("Attempt to read from a register not MagicValue, Version, or DeviceID on a device whose DeviceID is 0x0");
+        error!(
+            "Attempt to read from a register not MagicValue, Version, or \
+        DeviceID on a device whose DeviceID is 0x0, See virtio-v1.0-cs04 \
+        s4.2.3.1.1 Device Initialization"
+        );
     }
 
     // Now we know that the host provided a vqdev. As soon as the driver
@@ -240,19 +282,136 @@ fn virtio_mmio_read(dev: Arc<RwLock<VirtioMmioDev>>, gpa: usize, size: u8) -> u3
     // here until the offered feature combination is made valid.
     if offset == VIRTIO_MMIO_MAGIC_VALUE {
         // validate features
-        unimplemented!();
+        if let Err(e) = virtio_validate_feat(&dev.vqdev, dev.vqdev.dev_feat) {
+            error!("Virtio validate feat error: {}", e);
+        }
+    }
+
+    // Warn if FAILED status bit is set.
+    // virtio-v1.0-cs04 s2.1.1 Device Status Field
+    if dev.status & VIRTIO_CONFIG_S_FAILED > 0 {
+        warn!(
+            "The FAILED status bit is set. The driver should probably reset \
+        the device before continuing."
+        );
     }
 
     if offset >= VIRTIO_MMIO_CONFIG {
         let offset = offset - VIRTIO_MMIO_CONFIG;
-        if dev.status & VIRTIO_CONFIG_S_DRIVER == 0 {
-            error!("Driver attempted to read the device-specific configuration space before setting the DRIVER status bit.");
+        if dev.vqdev.cfg.len() == 0 {
+            error!(
+                "Driver attempted to read the device-specific configuration \
+             space, but the device failed to provide it."
+            );
         }
+
+        // virtio-v1.0-cs04 s3.1.1 Device Initialization
+        if dev.status & VIRTIO_CONFIG_S_DRIVER == 0 {
+            error!(
+                "Driver attempted to read the device-specific configuration \
+            space before setting the DRIVER status bit. See virtio-v1.0-cs04 \
+            s3.1.1 Device Initialization"
+            );
+        }
+
         if offset + (size as usize) > (dev.vqdev.cfg.len() << 2)
-            || offset + (size as usize) < offset
-        {}
+            || offset > usize::max_value() - (size as usize)
+        {
+            error!(
+                "Attempt to read invalid offset of the device specific \
+            configuration space, or (offset + read width) wrapped around."
+            );
+        }
+        let value = dev.vqdev.cfg[offset >> 2];
+        return (value >> (offset & 0b11)) & mask;
     }
-    unimplemented!()
+
+    // virtio-v1.0-cs04 4.2.2.2 MMIO Device Register Layout
+    if size != 4 || offset % 4 != 0 {
+        error!(
+            "The driver must only use 32 bit wide and aligned reads for \
+        reading the control registers on the MMIO transport. See \
+        virtio-v1.0-cs04 4.2.2.2 MMIO Device Register Layout."
+        );
+    }
+
+    // virtio-v1.0-cs04 Table 4.1
+    match offset {
+        // Magic value
+        // 0x74726976 (a Little Endian equivalent of the “virt” string).
+        VIRTIO_MMIO_MAGIC_VALUE => VIRT_MAGIC,
+
+        // Device version number
+        // 0x2. Note: Legacy devices (see 4.2.4 Legacy interface) used 0x1.
+        VIRTIO_MMIO_VERSION => VIRT_MMIO_VERSION,
+
+        // Virtio Subsystem Device ID (see virtio-v1.0-cs04 sec. 5 for values)
+        // Value 0x0 is used to define a system memory map with placeholder
+        // devices at static, well known addresses.
+        VIRTIO_MMIO_DEVICE_ID => dev.vqdev.dev_id as u32,
+
+        // Virtio Subsystem Vendor ID
+        VIRTIO_MMIO_VENDOR_ID => VIRT_MMIO_VENDOR,
+
+        // Flags representing features the device supports
+        VIRTIO_MMIO_DEVICE_FEATURES => {
+            if dev.status & VIRTIO_CONFIG_S_DRIVER == 0 {
+                error!(
+                    "Attempt to read device features before setting the \
+                DRIVER status bit. See virtio-v1.0-cs04 s3.1.1 Device Initialization"
+                );
+            }
+            (if dev.dev_feat_sel > 0 {
+                dev.vqdev.dev_feat >> 32 // high 32 bits requested
+            } else {
+                dev.vqdev.dev_feat & 0xffffffff // low 32 bits requested
+            }) as u32
+        }
+
+        // Maximum virtual queue size
+        // Returns the maximum size (number of elements) of the queue the device
+        // is ready to process or zero (0x0) if the queue is not available.
+        // Applies to the queue selected by writing to QueueSel.
+        VIRTIO_MMIO_QUEUE_NUM_MAX => {
+            if dev.qsel as usize >= dev.vqdev.vqs.len() {
+                0
+            } else {
+                dev.vqdev.vqs[dev.qsel as usize].qnum_max
+            }
+        }
+
+        // Virtual queue ready bit
+        // Applies to the queue selected by writing to QueueSel.
+        VIRTIO_MMIO_QUEUE_READY => {
+            if dev.qsel as usize >= dev.vqdev.vqs.len() {
+                0
+            } else {
+                dev.vqdev.vqs[dev.qsel as usize].qready
+            }
+        }
+
+        // Interrupt status
+        // Bit mask of events that caused the device interrupt to be asserted.
+        // bit 0: Used Ring Update
+        // bit 1: Configuration Change
+        VIRTIO_MMIO_INTERRUPT_STATUS => dev.status as u32,
+
+        // Device status
+        VIRTIO_MMIO_STATUS => dev.status as u32,
+
+        // Configuration atomicity value
+        // Contains a version for the device-specific configuration space
+        // The driver checks this version before and after accessing the config
+        // space, and if the values don't match it repeats the access.
+        VIRTIO_MMIO_CONFIG_GENERATION => dev.cfg_gen,
+        _ => {
+            warn!(
+                "attemp to read write-only or invalid device register offset {:x}",
+                offset
+            );
+            0
+        }
+    }
 }
 
 fn virtio_mmio_write(
