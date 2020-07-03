@@ -15,6 +15,7 @@ pub mod linux;
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 mod mach;
+mod rtc;
 pub mod utils;
 
 #[allow(dead_code)]
@@ -23,6 +24,7 @@ mod vmexit;
 pub mod vthread;
 #[allow(dead_code)]
 mod x86;
+use crate::rtc::Rtc;
 #[allow(unused_imports)]
 use consts::msr::*;
 use cpuid::do_cpuid;
@@ -95,6 +97,7 @@ pub struct VirtualMachine {
     pub(crate) guest_mmap: HashMap<usize, MachVMBlock>,
     pub vmcall_hander: fn(&VCPU, &GuestThread) -> Result<HandleResult, Error>,
     x86_host_xcr0: u64,
+    pub(crate) rtc: Rtc,
 }
 
 impl VirtualMachine {
@@ -115,6 +118,7 @@ impl VirtualMachine {
             guest_mmap: HashMap::new(),
             vmcall_hander: default_vmcall_handler,
             x86_host_xcr0: vmm.x86_host_xcr0,
+            rtc: Rtc { reg: 0 },
         };
         vm.gpa2hva_map()?;
         Ok(vm)

@@ -402,6 +402,8 @@ fn set_all_zero(rax: u64, size: u64) -> u64 {
 const CONFIG_DATA: u16 = 0xcfc;
 const CONFIG_DATA3: u16 = 0xcff;
 const CONFIG_ADDRESS: u16 = 0xcf8;
+const RTC_PORT_REG: u16 = 0x70;
+const RTC_PORT_DATA: u16 = 0x71;
 
 fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let cf8 = { gth.vm.read().unwrap().cf8 };
@@ -521,9 +523,14 @@ pub fn unknown_port_handler(
     let rax = vcpu.read_reg(X86Reg::RAX)?;
     let port = io_port(qual);
     if io_in(qual) {
-        error!("write to io port = {:x}, rax={:x}", port, rax);
+        error!("read from io port = {:x}, size = {}", port, io_size(qual));
     } else {
-        error!("write to io port = {:x}, rax={:x}", port, rax);
+        error!(
+            "write to io port = {:x}, rax={:x}, size = {}",
+            port,
+            rax,
+            io_size(qual)
+        );
     }
     error!("instruction: {:02x?}", get_vmexit_instr(vcpu));
     Err(Error::Unhandled(VMX_REASON_IO, "unknown port"))
@@ -531,12 +538,51 @@ pub fn unknown_port_handler(
 
 pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let qual = vcpu.read_vmcs(VMCS_RO_EXIT_QUALIFIC)?;
-    match io_port(qual) {
+    let rax = vcpu.read_reg(X86Reg::RAX)?;
+    let port = io_port(qual);
+    match port {
         CONFIG_DATA..=CONFIG_DATA3 => cfg_address_handler(qual, vcpu, gth),
         CONFIG_ADDRESS => cf8_handler(qual, vcpu, gth),
-        port => {
+        RTC_PORT_REG => {
+            if io_in(qual) {
+                unimplemented!()
+            } else {
+                gth.vm.write().unwrap().rtc.reg = rax as u8;
+                info!("set CMOS reg to {:x}", rax);
+            }
+            Ok(HandleResult::Next)
+        }
+        RTC_PORT_DATA => {
+            if io_in(qual) {
+                let v = { gth.vm.read().unwrap().rtc.read(RTC_PORT_DATA) };
+                info!("return 0x{:x} to port {:x}", v, RTC_PORT_DATA);
+                // unimplemented!();
+                vcpu.write_reg(X86Reg::RAX, set_all_zero(rax, io_size(qual)) | v as u64)?;
+            } else {
+                unimplemented!();
+            }
+            Ok(HandleResult::Next)
+        }
+        0x61 => {
+            if io_in(qual) {
+                match io_size(qual) {
+                    1 => vcpu.write_reg(X86Reg::RAX, 0b11111111)?,
+                    2 => vcpu.write_reg(X86Reg::RAX, 0xffff)?,
+                    4 => vcpu.write_reg(X86Reg::RAX, 0xffffffff)?,
+                    _ => unreachable!(),
+                }
+                warn!("return all 1 to unknown port read request, {:x} ", port);
+            } else {
+                warn!(
+                    "silent accept {:b} from port {:x}",
+                    vcpu.read_reg(X86Reg::RAX)?,
+                    port
+                );
+            }
+            Ok(HandleResult::Next)
+        }
+        _ => {
             let instruction = get_vmexit_instr(vcpu)?;
-            let rax = vcpu.read_reg(X86Reg::RAX)?;
             if instruction[0] == 0xe6 {
                 warn!(
                     "silently accept OUT imm8, al, port = {:x}, rax = {:x}, instr = {:02x?}",
@@ -705,7 +751,7 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> HandleResult {
         }
         0x07 => {
             /* Do not advertise TSC_ADJUST */
-            ebx &= !(1 << 1);
+            ebx &= !((1 << 1) | (1 << 10));
         }
         0x0a => {
             eax = 0;
