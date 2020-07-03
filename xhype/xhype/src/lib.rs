@@ -268,7 +268,7 @@ impl GuestThread {
                 }
                 VMX_REASON_XSETBV => handle_xsetbv(&vcpu, self)?,
                 _ => {
-                    trace!("Unhandled reason = {}", reason);
+                    info!("Unhandled reason = {}", reason);
                     if reason < VMX_REASON_MAX {
                         return Err(Error::Unhandled(reason, "unable to handle"));
                     } else {
@@ -291,7 +291,7 @@ impl GuestThread {
 
 extern "C" {
     pub fn hlt();
-    pub fn raw_vmcall(num: u64, args: *const u8);
+    pub fn raw_vmcall(num: u64, args: *const u8, length: u64);
 }
 
 /// num is the function number, args is a pointer to arguments
@@ -299,6 +299,12 @@ extern "C" {
 /// num = 1, args = pointer to a c-style string: print the string
 pub fn vmcall(num: u64, args: *const u8) {
     unsafe {
-        raw_vmcall(num, args);
+        raw_vmcall(num, args, 0);
+    }
+}
+
+pub fn vmcall2(num: u64, args: *const u8, length: u64) {
+    unsafe {
+        raw_vmcall(num, args, length);
     }
 }
