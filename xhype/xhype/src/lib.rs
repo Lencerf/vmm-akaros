@@ -242,7 +242,7 @@ impl GuestThread {
                     return Err(Error::Unhandled(reason, "unhandled exception"));
                 }
                 VMX_REASON_IRQ => HandleResult::Resume,
-                VMX_REASON_CPUID => handle_cpuid(&vcpu, self),
+                VMX_REASON_CPUID => handle_cpuid(&vcpu, self)?,
                 VMX_REASON_HLT => HandleResult::Exit,
                 VMX_REASON_VMCALL => handle_vmcall(&vcpu, self)?,
                 VMX_REASON_MOV_CR => handle_cr(&vcpu, self)?,

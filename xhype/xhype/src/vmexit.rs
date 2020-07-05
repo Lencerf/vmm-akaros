@@ -9,6 +9,8 @@ use super::x86::*;
 use super::{Error, GuestThread, X86Reg, VCPU};
 use crate::cpuid::do_cpuid;
 use crate::decode::emulate_mem_insn;
+#[allow(unused_imports)]
+use crate::hv::{vmx_read_capability, VMXCap};
 use crate::ioapic::ioapic_access;
 use log::{error, info, trace, warn};
 use std::mem::size_of;
@@ -727,7 +729,7 @@ pub fn handle_xsetbv(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Err
 // VMX_REASON_CPUID
 ////////////////////////////////////////////////////////////////////////////////
 
-pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> HandleResult {
+pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error> {
     let eax_in = vcpu.read_reg(X86Reg::RAX).unwrap() as u32;
     let ecx_in = vcpu.read_reg(X86Reg::RCX).unwrap() as u32;
     // FIX ME: can be optimized here
@@ -746,6 +748,16 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> HandleResult {
             /* Unset the perf capability bit so that the guest does not try
              * to turn it on. */
             ecx &= !(1 << 15);
+            if (vmx_read_capability(VMXCap::CPU2)? >> 32) & CPU_BASED2_XSAVES_XRSTORS == 0 {
+                ecx &= !(1 << 26); // unset xsave if it is not supported in cpubased2
+                info!("indicate that xsave is not supported");
+            }
+            if ecx & (1 << 26) == 0 || vcpu.read_reg(X86Reg::CR4)? & X86_CR4_OSXSAVE == 0 {
+                ecx &= !(1 << 27); // unset osxsave if it is not supported or it is not turned on
+            } else {
+                ecx |= 1 << 27;
+            }
+
             /* Set the guest pcore id into the apic ID field in CPUID. */
             ebx &= 0x0000ffff;
             // FIX me, not finished
@@ -816,5 +828,5 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> HandleResult {
         ecx,
         edx
     );
-    HandleResult::Next
+    Ok(HandleResult::Next)
 }

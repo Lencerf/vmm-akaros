@@ -534,12 +534,12 @@ impl VCPU {
 
         self.write_vmcs(VMCS_CTRL_EXC_BITMAP, 0xffffffff & !(1 << 14))?;
 
-        let cr0 = X86_CR0_NE | X86_CR0_ET | X86_CR0_PE | X86_CR0_PG;
+        let cr0 = X86_CR0_NE | X86_CR0_PE | X86_CR0_PG;
         self.write_vmcs(VMCS_GUEST_CR0, cr0)?;
         self.write_vmcs(VMCS_CTRL_CR0_MASK, X86_CR0_PE | X86_CR0_PG)?;
         self.write_vmcs(VMCS_CTRL_CR0_SHADOW, X86_CR0_PE | X86_CR0_PG)?;
 
-        let cr4 = X86_CR4_VMXE | X86_CR4_OSFXSR | X86_CR4_OSXSAVE | X86_CR4_PAE;
+        let cr4 = X86_CR4_VMXE | X86_CR4_PAE;
         self.write_vmcs(VMCS_GUEST_CR4, cr4)?;
         self.write_vmcs(VMCS_CTRL_CR4_MASK, X86_CR4_VMXE)?;
         self.write_vmcs(VMCS_CTRL_CR4_SHADOW, 0)?;
@@ -568,7 +568,22 @@ mod tests {
     #[test]
     fn hv_vcpu_test() {
         vm_create(0).unwrap();
-        println!("cpu2 cap={:x}", vmx_read_capability(VMXCap::CPU2).unwrap());
+        let cap = vmx_read_capability(VMXCap::CPU2).unwrap();
+        for i in 0..32 {
+            print!("{:3}", i);
+        }
+        println!("");
+        let low = cap & 0xffffffff;
+        let high = cap >> 32;
+        for i in 0..32 {
+            print!("{:3b}", if low & (1 << i) > 0 { 1 } else { 0 })
+        }
+        println!("");
+        for i in 0..32 {
+            print!("{:3b}", if high & (1 << i) > 0 { 1 } else { 0 })
+        }
+        println!("");
+        println!("cpu2 cap={:b}", vmx_read_capability(VMXCap::CPU2).unwrap());
         {
             let vcpu = VCPU::create().unwrap();
             vcpu.write_reg(X86Reg::RFLAGS, 0x2u64).unwrap();
