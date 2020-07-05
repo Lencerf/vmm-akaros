@@ -96,12 +96,7 @@ pub fn get_vmexit_instr(vcpu: &VCPU) -> Result<Vec<u8>, Error> {
 }
 
 #[allow(dead_code)]
-pub fn get_vmexit_instr_more(
-    vcpu: &VCPU,
-    _gth: &GuestThread,
-    before: u64,
-    after: u64,
-) -> Result<[Vec<u8>; 3], Error> {
+pub fn get_vmexit_instr_more(vcpu: &VCPU, before: u64, after: u64) -> Result<[Vec<u8>; 3], Error> {
     let len = vcpu.read_vmcs(VMCS_RO_VMEXIT_INSTR_LEN)?;
     let rip_v = vcpu.read_vmcs(VMCS_GUEST_RIP)?;
     let rip = simulate_paging(&vcpu, rip_v)?;
