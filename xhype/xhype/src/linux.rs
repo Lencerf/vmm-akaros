@@ -171,9 +171,19 @@ pub fn load_linux64(
     let gdt_offset = cmd_line_offset - PAGE_SIZE;
     let pml4_offset = gdt_offset - PAGE_SIZE;
     let first_pdpt_offset = pml4_offset - PAGE_SIZE;
+    info!(
+        "bp = {:x}, cmd = {:x}, gdt = {:x}, pml4 = {:x}, first pdpt = {:x}",
+        bp_offset, cmd_line_offset, gdt_offset, pml4_offset, first_pdpt_offset
+    );
 
-    let mut high_mem =
-        MachVMBlock::new_aligned(mem_size, header.kernel_alignment as usize).unwrap();
+    let mut high_mem = if cfg!(debug_assertions) {
+        // for debug purpose we load the kernel to a fix address
+        // Fix me! it might cause problem if we are testing multiple kernels
+        MachVMBlock::new_fixed(0x200000000, mem_size).unwrap()
+    } else {
+        MachVMBlock::new_aligned(mem_size, header.kernel_alignment as usize).unwrap()
+    };
+
     let mut bp = BootParams::new();
     bp.hdr = header;
 
