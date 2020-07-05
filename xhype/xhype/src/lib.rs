@@ -222,12 +222,26 @@ impl GuestThread {
         let mut result: HandleResult;
         let mut last_physical_addr = 0;
         let mut ept_count = 0;
+        let mut irq_count = 0;
         loop {
             vcpu.run()?;
             let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
             let rip = vcpu.read_reg(X86Reg::RIP)?;
             trace!("vm exit reason = {}, rip = {:x}", reason, rip);
             let instr_len = vcpu.read_vmcs(VMCS_RO_VMEXIT_INSTR_LEN)?;
+            if reason != VMX_REASON_IRQ {
+                irq_count = 0;
+            } else {
+                irq_count += 1;
+            }
+            if irq_count > 300 {
+                error!(
+                    "instr = {:02x?}， rip = {:x}",
+                    get_vmexit_instr_more(vcpu, 32, 32)?,
+                    vcpu.read_reg(X86Reg::RIP)?
+                );
+                return Err((VMX_REASON_IRQ, "irq for too many times"))?;
+            }
             result = match reason {
                 VMX_REASON_EXC_NMI => {
                     let info = vcpu.read_vmcs(VMCS_RO_VMEXIT_IRQ_INFO)?;
