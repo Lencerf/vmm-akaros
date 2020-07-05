@@ -15,6 +15,7 @@ pub mod linux;
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 mod mach;
+mod pit;
 mod rtc;
 pub mod utils;
 
@@ -36,6 +37,7 @@ use ioapic::IoApic;
 #[allow(unused_imports)]
 use log::*;
 use mach::{vm_self_region, MachVMBlock};
+use pit::Pit;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -98,6 +100,7 @@ pub struct VirtualMachine {
     pub vmcall_hander: fn(&VCPU, &GuestThread) -> Result<HandleResult, Error>,
     x86_host_xcr0: u64,
     pub(crate) rtc: Rtc,
+    pub(crate) pit: Pit,
 }
 
 impl VirtualMachine {
@@ -119,6 +122,7 @@ impl VirtualMachine {
             vmcall_hander: default_vmcall_handler,
             x86_host_xcr0: vmm.x86_host_xcr0,
             rtc: Rtc { reg: 0 },
+            pit: Pit::default(),
         };
         vm.gpa2hva_map()?;
         Ok(vm)

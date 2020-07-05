@@ -12,6 +12,7 @@ use crate::decode::emulate_mem_insn;
 #[allow(unused_imports)]
 use crate::hv::{vmx_read_capability, VMXCap};
 use crate::ioapic::ioapic_access;
+use crate::pit::{pit_cmd_handler, pit_data_handle};
 use log::{error, info, trace, warn};
 use std::mem::size_of;
 
@@ -407,12 +408,6 @@ fn set_all_zero(rax: u64, size: u64) -> u64 {
     }
 }
 
-const CONFIG_DATA: u16 = 0xcfc;
-const CONFIG_DATA3: u16 = 0xcff;
-const CONFIG_ADDRESS: u16 = 0xcf8;
-const RTC_PORT_REG: u16 = 0x70;
-const RTC_PORT_DATA: u16 = 0x71;
-
 fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let cf8 = { gth.vm.read().unwrap().cf8 };
     let rax = vcpu.read_reg(X86Reg::RAX)?;
@@ -544,10 +539,25 @@ pub fn unknown_port_handler(
     Err(Error::Unhandled(VMX_REASON_IO, "unknown port"))
 }
 
+const CONFIG_DATA: u16 = 0xcfc;
+const CONFIG_DATA3: u16 = 0xcff;
+const CONFIG_ADDRESS: u16 = 0xcf8;
+const RTC_PORT_REG: u16 = 0x70;
+const RTC_PORT_DATA: u16 = 0x71;
+const PIT_0: u16 = 0x40;
+const PIT_1: u16 = 0x41;
+const PIT_2: u16 = 0x42;
+const PIT_CMD: u16 = 0x43;
+
 pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let qual = vcpu.read_vmcs(VMCS_RO_EXIT_QUALIFIC)?;
     let rax = vcpu.read_reg(X86Reg::RAX)?;
     let port = io_port(qual);
+    // info!(
+    //     "io instruction: {:02x?}, rip={:x}",
+    //     get_vmexit_instr(vcpu)?,
+    //     vcpu.read_reg(X86Reg::RIP)?
+    // );
     match port {
         CONFIG_DATA..=CONFIG_DATA3 => cfg_address_handler(qual, vcpu, gth),
         CONFIG_ADDRESS => cf8_handler(qual, vcpu, gth),
@@ -571,6 +581,26 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
             }
             Ok(HandleResult::Next)
         }
+        PIT_CMD => {
+            if io_in(qual) {
+                error!("read from pit command port");
+            } else {
+                if io_size(qual) == 1 {
+                    return pit_cmd_handler(vcpu, gth);
+                } else {
+                    error!("write more than 1 byte data to pit command port");
+                }
+            }
+            Ok(HandleResult::Next)
+        }
+        PIT_0 | PIT_1 | PIT_2 => {
+            if io_size(qual) != 1 {
+                error!("write more than 1 byte to pit data port");
+                Ok(HandleResult::Next)
+            } else {
+                pit_data_handle(vcpu, gth, port, io_in(qual))
+            }
+        }
         0x61 => {
             if io_in(qual) {
                 match io_size(qual) {
@@ -589,21 +619,50 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
             }
             Ok(HandleResult::Next)
         }
-        _ => {
-            let instruction = get_vmexit_instr(vcpu)?;
-            if instruction[0] == 0xe6 {
-                warn!(
-                    "silently accept OUT imm8, al, port = {:x}, rax = {:x}, instr = {:02x?}",
-                    port, rax, instruction
-                );
-                Ok(HandleResult::Next)
-            } else if instruction == [0xe4, 0x21] {
+        0x21 | 0xa1 => {
+            if io_in(qual) {
                 warn!("signifying there is no PIC");
                 vcpu.write_reg(X86Reg::RAX, rax | 0xff)?;
+            } else {
+                warn!("just accept {:x} to port {:x}", rax, port);
+            };
+            Ok(HandleResult::Next)
+        }
+        0x80 => {
+            if io_in(qual) {
+                Err((VMX_REASON_IO, "cannot return value to port 0x80"))?
+            } else {
+                warn!("just accept {:x} to port {:x}", rax, port);
+                Ok(HandleResult::Next)
+            }
+        }
+        _ => {
+            if io_in(qual) && io_size(qual) == 1 {
+                warn!(
+                    "silently accept OUT imm8, al, port = {:x}, rax = {:x}",
+                    port, rax,
+                );
                 Ok(HandleResult::Next)
             } else {
                 unknown_port_handler(qual, vcpu, gth)
             }
+            // warn!("rip = {:x}", vcpu.read_reg(X86Reg::RIP)?);
+            // let instruction = get_vmexit_instr(vcpu).unwrap();
+            // if instruction[0] == 0xe6 {
+            //     if port != 0x80 {
+            //         warn!(
+            //             "silently accept OUT imm8, al, port = {:x}, rax = {:x}, instr = {:02x?}",
+            //             port, rax, instruction
+            //         );
+            //     }
+            //     Ok(HandleResult::Next)
+            // } else if instruction == [0xe4, 0x21] {
+            //     warn!("signifying there is no PIC");
+            //     vcpu.write_reg(X86Reg::RAX, rax | 0xff)?;
+            //     Ok(HandleResult::Next)
+            // } else {
+            //     unknown_port_handler(qual, vcpu, gth)
+            // }
         }
     }
 }
