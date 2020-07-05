@@ -15,3 +15,11 @@ void print_cstr(char* str, long n) {
 	for(int i = 0; i < n; i += 1)
 		printf("%c", *(str+i));
 }
+
+void print_num(long num, long format) {
+	if (format == 16) {
+		printf("%lx ", num);
+	} else {
+		printf("%ld ", num);
+	}
+}

@@ -612,6 +612,7 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
 
 extern "C" {
     pub fn print_cstr(s: *const u8, num: u64);
+    pub fn print_num(num: u64, format: u64);
 }
 
 pub fn default_vmcall_handler(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error> {
@@ -629,12 +630,18 @@ pub fn default_vmcall_handler(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleR
         2 => {
             let length = vcpu.read_reg(X86Reg::RDX)?;
             let str_gpa = simulate_paging(vcpu, vmcall_args)?;
-            warn!(
-                "vmcall 2, rdx, length = {}, rsi args = {:x}",
-                length, str_gpa
-            );
+            // warn!(
+            //     "vmcall 2, rdx, length = {}, rsi args = {:x}",
+            //     length, str_gpa
+            // );
             unsafe {
                 print_cstr(str_gpa as *const u8, length);
+            }
+        }
+        3 => {
+            let format = vcpu.read_reg(X86Reg::RDX)?;
+            unsafe {
+                print_num(vmcall_args, format);
             }
         }
         _ => {}
