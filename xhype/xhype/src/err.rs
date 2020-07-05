@@ -22,6 +22,12 @@ impl From<(u32, &'static str)> for Error {
     }
 }
 
+impl From<(u64, &'static str)> for Error {
+    fn from(e: (u64, &'static str)) -> Error {
+        Error::Unhandled(e.0, e.1)
+    }
+}
+
 impl From<&'static str> for Error {
     fn from(msg: &'static str) -> Error {
         Error::Program(msg)
