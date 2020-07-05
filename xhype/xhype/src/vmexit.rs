@@ -681,7 +681,7 @@ pub fn default_vmcall_handler(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleR
                 let ptr = vmcall_args as *const &str;
                 ptr.read()
             };
-            println!("{}", string);
+            warn!("{}", string);
         }
         2 => {
             let length = vcpu.read_reg(X86Reg::RDX)?;
