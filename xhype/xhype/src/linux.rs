@@ -16,7 +16,7 @@ use std::mem::size_of;
 use std::sync::{Arc, RwLock};
 
 const LOW64K: usize = 64 * KiB;
-const LOW_MEM_SIZE: usize = 1 * MiB;
+const LOW_MEM_SIZE: usize = 16 * MiB;
 const RESEARVED_START: usize = 0xC0000000;
 const RESEARVED_SIZE: usize = 4 * GiB - RESEARVED_START;
 const RD_ADDR: usize = 16 * MiB;
@@ -195,6 +195,12 @@ pub fn load_linux64(
         .unwrap();
 
     // command line
+    let virtio_start: usize = 0x2000000000;
+    let cmd_line = format!(
+        "{} virtio_mmio.device=1K@0x{:x}:{}:3",
+        cmd_line, virtio_start, 45
+    );
+    warn!("full command line = {}", cmd_line);
     let cmd_line_base = high_mem.start + cmd_line_offset;
     &high_mem[cmd_line_offset..(cmd_line_offset + cmd_line.len())]
         .clone_from_slice(cmd_line.as_bytes());
