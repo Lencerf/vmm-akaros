@@ -140,12 +140,15 @@ pub fn handle_cr(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error>
     match access_type {
         0 => {
             // move to cr
-            let new_value = vcpu.read_reg(reg)?;
-            vcpu.write_reg(creg, new_value)?;
+            let mut new_value = vcpu.read_reg(reg)?;
             if creg == X86Reg::CR0 {
+                new_value |= X86_CR0_NE;
+                vcpu.write_vmcs(VMCS_CTRL_CR0_SHADOW, new_value)?;
                 let mut efer = vcpu.read_vmcs(VMCS_GUEST_IA32_EFER)?;
+                let cr4 = vcpu.read_reg(X86Reg::CR4)?;
                 let long_mode = new_value & X86_CR0_PE > 0
                     && new_value & X86_CR0_PG > 0
+                    && cr4 & X86_CR4_PAE > 0
                     && efer & X86_EFER_LME > 0;
                 if long_mode && efer & X86_EFER_LMA == 0 {
                     efer |= X86_EFER_LMA;
@@ -163,7 +166,10 @@ pub fn handle_cr(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error>
                     vcpu.write_vmcs(VMCS_CTRL_VMENTRY_CONTROLS, ctrl_entry)?;
                     info!("turn off LMA");
                 }
+            } else {
+                unimplemented!();
             }
+            vcpu.write_reg(creg, new_value)?;
             info!("update {:?} to {:x}", creg, new_value);
         }
         _ => unimplemented!(),
