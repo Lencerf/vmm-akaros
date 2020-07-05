@@ -672,20 +672,29 @@ fn ept_instr_fetch(qual: u64) -> bool {
     qual & 0b100 > 0
 }
 
+fn ept_page_walk(qual: u64) -> bool {
+    qual & (1 << 7) > 0 && qual & (1 << 8) == 0
+}
+
 pub fn handle_ept_violation(
     gpa: usize,
     vcpu: &VCPU,
     gth: &GuestThread,
 ) -> Result<HandleResult, Error> {
     let qual = vcpu.read_vmcs(VMCS_RO_EXIT_QUALIFIC)?;
-    trace!(
-        "ept at gpa={:x}, vcpuid = {}, read = {}, write = {}, fetch = {}",
-        gpa,
-        vcpu.id(),
-        ept_read(qual),
-        ept_write(qual),
-        ept_instr_fetch(qual)
-    );
+    if !ept_page_walk(qual) {
+        trace!(
+            "ept at gpa={:x}, vcpuid = {}, read = {}, write = {}, fetch = {}, page walk = {}, instru = {:02x?}, rsp = {:x}",
+            gpa,
+            vcpu.id(),
+            ept_read(qual),
+            ept_write(qual),
+            ept_instr_fetch(qual),
+            ept_page_walk(qual),
+            get_vmexit_instr(vcpu)?,
+            vcpu.read_reg(X86Reg::RSP)?
+        );
+    }
     if gpa >= IO_APIC_BASE && gpa < IO_APIC_BASE + PAGE_SIZE {
         let insn = get_vmexit_instr(vcpu)?;
         emulate_mem_insn(vcpu, gth, &insn, ioapic_access, gpa)?;

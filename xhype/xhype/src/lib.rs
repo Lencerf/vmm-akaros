@@ -225,7 +225,8 @@ impl GuestThread {
         loop {
             vcpu.run()?;
             let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
-            trace!("vm exit reason = {}", reason);
+            let rip = vcpu.read_reg(X86Reg::RIP)?;
+            trace!("vm exit reason = {}, rip = {:x}", reason, rip);
             let instr_len = vcpu.read_vmcs(VMCS_RO_VMEXIT_INSTR_LEN)?;
             result = match reason {
                 VMX_REASON_EXC_NMI => {
@@ -239,6 +240,13 @@ impl GuestThread {
                         "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
                         valid, nmi, e_type, vector, code
                     );
+                    if vector == 6 {
+                        warn!(
+                            "invalid opcode: {:02x?}, rip = {:x}",
+                            get_vmexit_instr(vcpu)?,
+                            vcpu.read_reg(X86Reg::RIP)?
+                        );
+                    }
                     return Err(Error::Unhandled(reason, "unhandled exception"));
                 }
                 VMX_REASON_IRQ => HandleResult::Resume,
