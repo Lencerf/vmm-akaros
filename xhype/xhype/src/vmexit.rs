@@ -796,6 +796,27 @@ pub fn handle_xsetbv(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Err
 ////////////////////////////////////////////////////////////////////////////////
 // VMX_REASON_CPUID
 ////////////////////////////////////////////////////////////////////////////////
+pub const CPUID_STDEXT_FSGSBASE: u64 = 0x00000001;
+pub const CPUID_STDEXT_TSC_ADJUST: u64 = 0x00000002;
+pub const CPUID_STDEXT_BMI1: u64 = 0x00000008;
+pub const CPUID_STDEXT_HLE: u64 = 0x00000010;
+pub const CPUID_STDEXT_AVX2: u64 = 0x00000020;
+pub const CPUID_STDEXT_SMEP: u64 = 0x00000080;
+pub const CPUID_STDEXT_BMI2: u64 = 0x00000100;
+pub const CPUID_STDEXT_ERMS: u64 = 0x00000200;
+pub const CPUID_STDEXT_INVPCID: u64 = 0x00000400;
+pub const CPUID_STDEXT_RTM: u64 = 0x00000800;
+pub const CPUID_STDEXT_MPX: u64 = 0x00004000;
+pub const CPUID_STDEXT_AVX512F: u64 = 0x00010000;
+pub const CPUID_STDEXT_RDSEED: u64 = 0x00040000;
+pub const CPUID_STDEXT_ADX: u64 = 0x00080000;
+pub const CPUID_STDEXT_SMAP: u64 = 0x00100000;
+pub const CPUID_STDEXT_CLFLUSHOPT: u64 = 0x00800000;
+pub const CPUID_STDEXT_PROCTRACE: u64 = 0x02000000;
+pub const CPUID_STDEXT_AVX512PF: u64 = 0x04000000;
+pub const CPUID_STDEXT_AVX512ER: u64 = 0x08000000;
+pub const CPUID_STDEXT_AVX512CD: u64 = 0x10000000;
+pub const CPUID_STDEXT_SHA: u64 = 0x20000000;
 
 pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error> {
     let eax_in = vcpu.read_reg(X86Reg::RAX).unwrap() as u32;
@@ -836,15 +857,39 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Err
             // like an executor of virtual tasks. For a virtual kernel we should
             // use the id of its virtual threads.
             ebx |= (vcpu.id() & 0xff) << 24;
-            warn!(
-                "set number of logical processors = 1, apic id = {}",
-                vcpu.id()
-            );
+            // warn!(
+            //     "set number of logical processors = 1, apic id = {}",
+            //     vcpu.id()
+            // );
             // unimplemented!();
         }
+        0x06 => {
+            eax = 0x4;
+            ebx = 0;
+            ecx = 0;
+            edx = 0;
+        }
         0x07 => {
-            /* Do not advertise TSC_ADJUST */
-            ebx &= !((1 << 1) | (1 << 10));
+            // /* Do not advertise TSC_ADJUST */
+            // ebx &= !(1 << 1);
+            eax = 0;
+            ecx = 0;
+            edx = 0;
+            if ecx_in == 0 {
+                ebx = (CPUID_STDEXT_FSGSBASE
+                    | CPUID_STDEXT_BMI1
+                    | CPUID_STDEXT_HLE
+                    | CPUID_STDEXT_AVX2
+                    | CPUID_STDEXT_BMI2
+                    | CPUID_STDEXT_ERMS
+                    | CPUID_STDEXT_RTM
+                    | CPUID_STDEXT_AVX512F
+                    | CPUID_STDEXT_AVX512PF
+                    | CPUID_STDEXT_AVX512ER
+                    | CPUID_STDEXT_AVX512CD) as u32;
+            } else {
+                ebx = 0;
+            }
         }
         0x0a => {
             eax = 0;
@@ -860,6 +905,7 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Err
             // ebx = 0x4b4d564b;
             // ecx = 0x564b4d56;
             // edx = 0x4d;
+            ebx = unsafe { std::mem::transmute(*b"hype") };
         }
         0x40000003 => {
             /* Hypervisor Features. */
