@@ -299,11 +299,15 @@ fn emsr_apicbase(
     vcpu: &VCPU,
     gth: &GuestThread,
 ) -> Result<HandleResult, Error> {
+    warn!("apic base msr accessed, read = {}", read);
+    let x2apic = 1 << 10;
     let value = if gth.id == 0 {
-        0xfee00d00 // BSP
+        APIC_GPA | (1 << 8) | x2apic | (1 << 11)
+    // 0xfee00d00 // BSP
     } else {
-        0xfee00c00 // non BSP
-    };
+        APIC_GPA | x2apic | (1 << 11)
+        // 0xfee00c00 // non BSP
+    } as u64;
     if read {
         write_msr_to_reg(value, vcpu)
     } else {
@@ -351,6 +355,14 @@ pub fn handle_msr_access(
         info!("read msr = {:08x}", ecx);
         0
     };
+    if ecx >= 0x800 && ecx < 0x840 {
+        if read {
+            let v = gth.apic.read((ecx - 0x800) as usize)?;
+            return write_msr_to_reg(v, vcpu);
+        } else {
+            unimplemented!()
+        }
+    }
     for handler in MSR_HANDLERS.iter() {
         if handler.0 == ecx {
             return handler.1(ecx, read, new_value, vcpu, gth);

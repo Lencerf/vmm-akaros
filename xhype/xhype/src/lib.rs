@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #![cfg_attr(feature = "vthread_closure", feature(fn_traits))]
+mod apic;
 #[allow(dead_code)]
 mod bios;
 #[allow(non_upper_case_globals)]
@@ -26,6 +27,7 @@ pub mod vthread;
 #[allow(dead_code)]
 mod x86;
 use crate::rtc::Rtc;
+use apic::Apic;
 #[allow(unused_imports)]
 use consts::msr::*;
 use cpuid::do_cpuid;
@@ -179,6 +181,7 @@ pub struct GuestThread {
     vapic_addr: usize,
     posted_irq_desc: usize,
     pub(crate) msr_pat: Cell<u64>,
+    pub(crate) apic: Apic,
 }
 
 impl GuestThread {
@@ -191,6 +194,7 @@ impl GuestThread {
             vapic_addr: 0,
             posted_irq_desc: 0,
             msr_pat: Cell::new(0x7040600070406),
+            apic: Apic::new(true),
         }
     }
 
