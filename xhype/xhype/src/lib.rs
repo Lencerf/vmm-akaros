@@ -212,7 +212,8 @@ impl GuestThread {
         result
     }
     fn run_on_inner(&self, vcpu: &VCPU) -> Result<(), Error> {
-        vcpu.set_vapic_address(self.vapic_addr)?;
+        // it looks like Hypervisor.framework does not support APIC virtualization
+        // vcpu.set_vapic_address(self.vapic_addr)?;
         vcpu.enable_msrs()?;
         vcpu.long_mode()?;
         for (field, value) in self.init_vmcs.iter() {

@@ -522,11 +522,10 @@ impl VCPU {
                 CPU_BASED_HLT | CPU_BASED_CR8_LOAD | CPU_BASED_CR8_STORE,
             ),
         )?;
+
+        // it looks like Hypervisor.framework does not support APIC virtualization
         // Hypervisor.framework does not support X2APIC virtualization
-        self.write_vmcs(
-            VMCS_CTRL_CPU_BASED2,
-            cap2ctrl(cap_cpu2, CPU_BASED2_RDTSCP | CPU_BASED2_VIRTUAL_APIC),
-        )?;
+        self.write_vmcs(VMCS_CTRL_CPU_BASED2, cap2ctrl(cap_cpu2, CPU_BASED2_RDTSCP))?;
         self.write_vmcs(
             VMCS_CTRL_VMENTRY_CONTROLS,
             cap2ctrl(cap_entry, VMENTRY_GUEST_IA32E),

@@ -313,8 +313,9 @@ pub fn load_linux64(
     if let Some(rd_mem_block) = rd_mem {
         mem_maps.insert(RD_ADDR, rd_mem_block);
     }
-    let apic_page = MachVMBlock::new(PAGE_SIZE)?;
-    mem_maps.insert(APIC_GPA, apic_page);
+    // it looks like Hypervisor.framework does not support APIC virtualization
+    // let apic_page = MachVMBlock::new(PAGE_SIZE)?;
+    // mem_maps.insert(APIC_GPA, apic_page);
     mem_maps.insert(vapic_block_start, vapic_block);
     {
         let mut vm_ = vm.write().unwrap();
