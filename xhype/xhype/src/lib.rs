@@ -47,6 +47,24 @@ use std::sync::{Arc, RwLock};
 use vmexit::*;
 use x86::*;
 
+pub fn print_stack(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
+    let rip = vcpu.read_reg(X86Reg::RIP)?;
+    println!("current rip = {:x}", rip);
+    let mut rbp = vcpu.read_reg(X86Reg::RBP)?;
+    for i in 0..depth {
+        let rbp_physical = simulate_paging(vcpu, rbp)?;
+        let return_address_physical = simulate_paging(vcpu, rbp + 8)?;
+        println!(
+            "i = {}, rbp = {:x}, rip = {:x}",
+            i,
+            rbp,
+            read_host_mem::<usize>(return_address_physical, 0)
+        );
+        rbp = read_host_mem::<u64>(rbp_physical, 0);
+    }
+    Ok(())
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // VMManager
 ////////////////////////////////////////////////////////////////////////////////
@@ -211,6 +229,10 @@ impl GuestThread {
             trace!("set vcpu {} space to {}", vcpu.id(), mem_space.id);
         }
         let result = self.run_on_inner(vcpu);
+        if result.is_err() {
+            error!("last rip = {:x}", vcpu.read_reg(X86Reg::RIP)?);
+            print_stack(vcpu, 3)?;
+        }
         vcpu.set_space(&DEFAULT_MEM_SPACE)?;
         trace!("set vcpu back {} space to 0", vcpu.id());
         result
