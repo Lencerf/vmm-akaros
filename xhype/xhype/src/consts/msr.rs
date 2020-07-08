@@ -622,3 +622,4 @@ pub const MSR_VM_HSAVE_PA: u32 = 0xc0010117;
 
 // additonal
 pub const MSR_IA32_BIOS_SIGN_ID: u32 = 0x8b;
+pub const MISC_FEATURE_ENABLES: u32 = 0x140;

@@ -24,6 +24,24 @@ pub enum HandleResult {
     Next,
 }
 
+pub fn make_vm_entry_intr_info(
+    vcpu: &VCPU,
+    vector: u8,
+    r#type: u8,
+    code: Option<u32>,
+) -> Result<(), Error> {
+    // fix me: need to check Interruptibility
+    if let Some(code) = code {
+        vcpu.write_vmcs(VMCS_CTRL_VMENTRY_EXC_ERROR, code as u64)?;
+        let info = 1 << 31 | vector as u64 | (r#type as u64) << 8 | 1 << 11;
+        vcpu.write_vmcs(VMCS_CTRL_VMENTRY_IRQ_INFO, info)?;
+    } else {
+        let info = 1 << 31 | vector as u64 | (r#type as u64) << 8;
+        vcpu.write_vmcs(VMCS_CTRL_VMENTRY_IRQ_INFO, info)?;
+    }
+    Ok(())
+}
+
 // Fix me!
 // this function is extremely unsafe. The purpose is to read from guest's memory,
 // since the high memory address are the same as the host, we just directly read
@@ -204,13 +222,31 @@ fn emsr_unimpl(
     _gth: &GuestThread,
 ) -> Result<HandleResult, Error> {
     if read {
-        error!("read from unknown msr: {:08x} ", msr);
+        error!("read from unknown msr: {:08x}", msr);
         Err(Error::Unhandled(VMX_REASON_RDMSR, "unknown msr"))
     } else {
         error!("write {:x} to unknown msr: {:08x} ", new_value, msr);
         Err(Error::Unhandled(VMX_REASON_WRMSR, "unknown msr"))
     }
 }
+
+fn emsr_gp(
+    msr: u32,
+    read: bool,
+    new_value: u64,
+    vcpu: &VCPU,
+    _gth: &GuestThread,
+) -> Result<HandleResult, Error> {
+    if read {
+        error!("read from non-existing msr: {:08x}, generate GP", msr);
+        make_vm_entry_intr_info(vcpu, 13, 3, Some(0))?;
+        Ok(HandleResult::Resume)
+    } else {
+        error!("write {:x} to unknown msr: {:08x} ", new_value, msr);
+        Err(Error::Unhandled(VMX_REASON_WRMSR, "unknown msr"))
+    }
+}
+
 /*
  * Set mandatory bits
  *  11:   branch trace disabled
@@ -267,7 +303,12 @@ fn emsr_rdonly(
 ) -> Result<HandleResult, Error> {
     if read {
         let r = match msr {
-            MSR_MTRRCAP | MSR_MTRRDEF_TYPE | MSR_IA32_BIOS_SIGN_ID => 0,
+            MSR_MTRRCAP
+            | MSR_MTRRDEF_TYPE
+            | MSR_IA32_BIOS_SIGN_ID
+            | MSR_IA32_MCG_CAP
+            | MISC_FEATURE_ENABLES
+            | MSR_IA32_MCG_STATUS => 0,
             _ => unreachable!(),
         };
         write_msr_to_reg(r, vcpu)
@@ -346,6 +387,9 @@ arr!(static MSR_HANDLERS: [MSRHander; _] = [
     MSRHander(MSR_IA32_MISC_ENABLE, emsr_miscenable),
     MSRHander(MSR_LAPIC_ICR, emsr_unimpl),
     MSRHander(MSR_EFER, emsr_efer),
+    MSRHander(MSR_IA32_MCG_CAP, emsr_rdonly),
+    MSRHander(MSR_IA32_MCG_STATUS, emsr_rdonly),
+    MSRHander(MISC_FEATURE_ENABLES, emsr_rdonly),
 ]);
 
 pub fn handle_msr_access(
@@ -870,6 +914,8 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
             } else {
                 ecx |= 1 << 27;
             }
+            // remove tsc deadline
+            // ecx &= !(1 << 24);
 
             let x2apic = 1 << 21;
             if gth.apic.msr_apic_base & (1 << 10) > 0 {
