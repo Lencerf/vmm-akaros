@@ -141,7 +141,7 @@ mod tests {
     fn vthread_test() {
         let vmm = VMManager::new().unwrap();
         let vm = Arc::new(RwLock::new(vmm.create_vm(1).unwrap()));
-        let vth = VThread::new(&vm, 4096, add_a as usize).unwrap();
+        let mut vth = VThread::new(&vm, 4096, add_a as usize).unwrap();
         let vcpu = VCPU::create().unwrap();
         vth.gth.run_on(&vcpu).unwrap();
         unsafe {
