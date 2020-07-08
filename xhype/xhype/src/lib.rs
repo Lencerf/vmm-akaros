@@ -212,17 +212,17 @@ impl GuestThread {
             vapic_addr: 0,
             posted_irq_desc: 0,
             msr_pat: Cell::new(0x7040600070406),
-            apic: Apic::new(true),
+            apic: Apic::new(APIC_GPA as u64, true, false, id, id == 0),
         }
     }
 
-    pub fn start(self) -> std::thread::JoinHandle<Result<(), Error>> {
+    pub fn start(mut self) -> std::thread::JoinHandle<Result<(), Error>> {
         std::thread::spawn(move || {
             let vcpu = VCPU::create()?;
             self.run_on(&vcpu)
         })
     }
-    pub(crate) fn run_on(&self, vcpu: &VCPU) -> Result<(), Error> {
+    pub(crate) fn run_on(&mut self, vcpu: &VCPU) -> Result<(), Error> {
         {
             let mem_space = &(self.vm.read().unwrap()).mem_space;
             vcpu.set_space(mem_space)?;
@@ -237,7 +237,7 @@ impl GuestThread {
         trace!("set vcpu back {} space to 0", vcpu.id());
         result
     }
-    fn run_on_inner(&self, vcpu: &VCPU) -> Result<(), Error> {
+    fn run_on_inner(&mut self, vcpu: &VCPU) -> Result<(), Error> {
         // it looks like Hypervisor.framework does not support APIC virtualization
         // vcpu.set_vapic_address(self.vapic_addr)?;
         vcpu.enable_msrs()?;

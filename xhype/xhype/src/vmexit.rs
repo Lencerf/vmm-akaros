@@ -7,6 +7,7 @@ use super::hv::vmx::*;
 #[allow(unused_imports)]
 use super::x86::*;
 use super::{Error, GuestThread, X86Reg, VCPU};
+use crate::apic::apic_access;
 use crate::cpuid::do_cpuid;
 use crate::decode::emulate_mem_insn;
 #[allow(unused_imports)]
@@ -292,6 +293,8 @@ fn emsr_pat(
     }
 }
 
+static mut apic_count: i32 = 1;
+
 fn emsr_apicbase(
     _msr: u32,
     read: bool,
@@ -300,24 +303,30 @@ fn emsr_apicbase(
     gth: &GuestThread,
 ) -> Result<HandleResult, Error> {
     warn!("apic base msr accessed, read = {}", read);
-    let x2apic = 1 << 10;
-    let value = if gth.id == 0 {
-        APIC_GPA | (1 << 8) | x2apic | (1 << 11)
-    // 0xfee00d00 // BSP
-    } else {
-        APIC_GPA | x2apic | (1 << 11)
-        // 0xfee00c00 // non BSP
-    } as u64;
+
+    let value = gth.apic.msr_apic_base;
     if read {
         write_msr_to_reg(value, vcpu)
     } else {
         if new_value == value {
+            warn!("write to apic base msr, but value remains {:x}\n", value);
             Ok(HandleResult::Next)
         } else {
-            Err(Error::Unhandled(
-                VMX_REASON_WRMSR,
-                "apic base cannot be changed",
-            ))
+            if unsafe { apic_count } < 10 {
+                error!(
+                    "os change msr apic-base from {:x} to {:x}",
+                    value, new_value
+                );
+                unsafe {
+                    apic_count += 1;
+                }
+                Ok(HandleResult::Resume)
+            } else {
+                Err(Error::Unhandled(
+                    VMX_REASON_WRMSR,
+                    "apic base cannot be changed",
+                ))
+            }
         }
     }
 }
@@ -745,7 +754,7 @@ fn ept_page_walk(qual: u64) -> bool {
 pub fn handle_ept_violation(
     gpa: usize,
     vcpu: &VCPU,
-    gth: &GuestThread,
+    gth: &mut GuestThread,
 ) -> Result<HandleResult, Error> {
     let qual = vcpu.read_vmcs(VMCS_RO_EXIT_QUALIFIC)?;
     if !ept_page_walk(qual) {
@@ -764,6 +773,14 @@ pub fn handle_ept_violation(
     if gpa >= IO_APIC_BASE && gpa < IO_APIC_BASE + PAGE_SIZE {
         let insn = get_vmexit_instr(vcpu)?;
         emulate_mem_insn(vcpu, gth, &insn, ioapic_access, gpa)?;
+        Ok(HandleResult::Next)
+    } else if gpa >= APIC_GPA && gpa < APIC_GPA + PAGE_SIZE {
+        let insn = get_vmexit_instr(vcpu)?;
+        let r = emulate_mem_insn(vcpu, gth, &insn, apic_access, gpa);
+        if r.is_err() {
+            vcpu.dump()?;
+            return Err(r.unwrap_err());
+        }
         Ok(HandleResult::Next)
     } else {
         Ok(HandleResult::Resume)
@@ -825,7 +842,7 @@ pub const CPUID_STDEXT_AVX512ER: u64 = 0x08000000;
 pub const CPUID_STDEXT_AVX512CD: u64 = 0x10000000;
 pub const CPUID_STDEXT_SHA: u64 = 0x20000000;
 
-pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error> {
+pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let eax_in = vcpu.read_reg(X86Reg::RAX).unwrap() as u32;
     let ecx_in = vcpu.read_reg(X86Reg::RCX).unwrap() as u32;
     // FIX ME: can be optimized here
@@ -854,6 +871,14 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Err
                 ecx |= 1 << 27;
             }
 
+            let x2apic = 1 << 21;
+            if gth.apic.msr_apic_base & (1 << 10) > 0 {
+                // warn!("gth.apic.msr = {:x}", gth.apic.msr_apic_base | (1 << 10))
+                ecx |= x2apic;
+            } else {
+                ecx &= !x2apic;
+            }
+
             /* Set the guest pcore id into the apic ID field in CPUID. */
             ebx &= 0x0000ffff;
             // FIX me, not finished
@@ -863,7 +888,7 @@ pub fn handle_cpuid(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Err
             // FIX me: vcpu.id might not be appropriate. vcpu of macOS is more
             // like an executor of virtual tasks. For a virtual kernel we should
             // use the id of its virtual threads.
-            ebx |= (vcpu.id() & 0xff) << 24;
+            ebx |= (gth.id & 0xff) << 24;
             // warn!(
             //     "set number of logical processors = 1, apic id = {}",
             //     vcpu.id()

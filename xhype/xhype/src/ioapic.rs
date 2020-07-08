@@ -30,7 +30,17 @@ fn ioapic_write(gth: &GuestThread, offset: usize, value: u32) {
         info!("ioapic_write set reg {:x}", value);
         ioapic.reg = value;
     } else {
-        unimplemented!();
+        match ioapic.reg {
+            0 => ioapic.id = value,
+            1 | 2 => unimplemented!(),
+            reg => {
+                warn!(
+                    "OS write {:x} to {:x}, need to change virtio device irqs",
+                    value, reg
+                );
+                ioapic.value[reg as usize] = value;
+            }
+        }
     }
 }
 
@@ -60,7 +70,7 @@ fn ioapic_read(gth: &GuestThread, offset: usize) -> u32 {
 }
 
 pub fn ioapic_access(
-    gth: &GuestThread,
+    gth: &mut GuestThread,
     gpa: usize,
     reg_val: &mut u64,
     _size: u8,

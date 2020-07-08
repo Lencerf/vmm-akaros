@@ -5,7 +5,7 @@ use crate::{Error, GuestThread, HandleResult, X86Reg, VCPU};
 #[allow(unused_imports)]
 use log::{error, info, trace, warn};
 
-type MemAccessFn = fn(&GuestThread, usize, &mut u64, u8, bool) -> Result<(), Error>;
+type MemAccessFn = fn(&mut GuestThread, usize, &mut u64, u8, bool) -> Result<(), Error>;
 
 #[derive(Debug)]
 pub struct X86Decode {
@@ -223,7 +223,7 @@ fn add_8081(
 
 fn execute_op(
     vcpu: &VCPU,
-    gth: &GuestThread,
+    gth: &mut GuestThread,
     insn: &[u8],
     decode: &X86Decode,
     access: MemAccessFn,
@@ -263,7 +263,7 @@ fn execute_op(
 
 pub fn emulate_mem_insn(
     vcpu: &VCPU,
-    gth: &GuestThread,
+    gth: &mut GuestThread,
     insn: &[u8],
     access: MemAccessFn,
     gpa: usize,
