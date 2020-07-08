@@ -864,27 +864,80 @@ pub fn handle_xsetbv(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Err
 ////////////////////////////////////////////////////////////////////////////////
 // VMX_REASON_CPUID
 ////////////////////////////////////////////////////////////////////////////////
-pub const CPUID_STDEXT_FSGSBASE: u64 = 0x00000001;
-pub const CPUID_STDEXT_TSC_ADJUST: u64 = 0x00000002;
-pub const CPUID_STDEXT_BMI1: u64 = 0x00000008;
-pub const CPUID_STDEXT_HLE: u64 = 0x00000010;
-pub const CPUID_STDEXT_AVX2: u64 = 0x00000020;
-pub const CPUID_STDEXT_SMEP: u64 = 0x00000080;
-pub const CPUID_STDEXT_BMI2: u64 = 0x00000100;
-pub const CPUID_STDEXT_ERMS: u64 = 0x00000200;
-pub const CPUID_STDEXT_INVPCID: u64 = 0x00000400;
-pub const CPUID_STDEXT_RTM: u64 = 0x00000800;
-pub const CPUID_STDEXT_MPX: u64 = 0x00004000;
-pub const CPUID_STDEXT_AVX512F: u64 = 0x00010000;
-pub const CPUID_STDEXT_RDSEED: u64 = 0x00040000;
-pub const CPUID_STDEXT_ADX: u64 = 0x00080000;
-pub const CPUID_STDEXT_SMAP: u64 = 0x00100000;
-pub const CPUID_STDEXT_CLFLUSHOPT: u64 = 0x00800000;
-pub const CPUID_STDEXT_PROCTRACE: u64 = 0x02000000;
-pub const CPUID_STDEXT_AVX512PF: u64 = 0x04000000;
-pub const CPUID_STDEXT_AVX512ER: u64 = 0x08000000;
-pub const CPUID_STDEXT_AVX512CD: u64 = 0x10000000;
-pub const CPUID_STDEXT_SHA: u64 = 0x20000000;
+pub const CPUID_STDEXT_FSGSBASE: u32 = 0x00000001;
+pub const CPUID_STDEXT_BMI1: u32 = 0x00000008;
+pub const CPUID_STDEXT_HLE: u32 = 0x00000010;
+pub const CPUID_STDEXT_AVX2: u32 = 0x00000020;
+pub const CPUID_STDEXT_BMI2: u32 = 0x00000100;
+pub const CPUID_STDEXT_ERMS: u32 = 0x00000200;
+pub const CPUID_STDEXT_RTM: u32 = 0x00000800;
+pub const CPUID_STDEXT_AVX512F: u32 = 0x00010000;
+pub const CPUID_STDEXT_AVX512PF: u32 = 0x04000000;
+pub const CPUID_STDEXT_AVX512ER: u32 = 0x08000000;
+pub const CPUID_STDEXT_AVX512CD: u32 = 0x10000000;
+
+const CPUID_MONITOR: u32 = 1 << 3;
+const CPUID_VMX: u32 = 1 << 5;
+const CPUID_SMX: u32 = 1 << 6;
+const CPUID_EST: u32 = 1 << 7;
+const CPUID_TM2: u32 = 1 << 8;
+const CPUID_PDCM: u32 = 1 << 15;
+const CPUID_X2APIC: u32 = 1 << 21;
+const CPUID_TSC_DL: u32 = 1 << 24;
+const CPUID_XSAVE: u32 = 1 << 26;
+const CPUID_OSXSAVE: u32 = 1 << 27;
+const CPUID_HV: u32 = 1 << 31;
+
+const CPUID_ARAT: u32 = 1 << 2;
+
+const THREADS_PER_CORE: u32 = 1;
+
+//const AMDID2_LAHF: u32 = 0x00000001;
+//const AMDID2_CMP: u32 = 0x00000002;
+const AMDID2_SVM: u32 = 0x00000004;
+// const AMDID2_EXT_APIC: u32 = 0x00000008;
+// const AMDID2_CR8: u32 = 0x00000010;
+// const AMDID2_ABM: u32 = 0x00000020;
+// const AMDID2_SSE4A: u32 = 0x00000040;
+// const AMDID2_MAS: u32 = 0x00000080;
+// const AMDID2_PREFETCH: u32 = 0x00000100;
+const AMDID2_OSVW: u32 = 0x00000200;
+const AMDID2_IBS: u32 = 0x00000400;
+// const AMDID2_XOP: u32 = 0x00000800;
+// const AMDID2_SKINIT: u32 = 0x00001000;
+// const AMDID2_WDT: u32 = 0x00002000;
+// const AMDID2_LWP: u32 = 0x00008000;
+// const AMDID2_FMA4: u32 = 0x00010000;
+// const AMDID2_TCE: u32 = 0x00020000;
+const AMDID2_NODE_ID: u32 = 0x00080000;
+// const AMDID2_TBM: u32 = 0x00200000;
+const AMDID2_TOPOLOGY: u32 = 0x00400000;
+const AMDID2_PCXC: u32 = 0x00800000;
+const AMDID2_PNXC: u32 = 0x01000000;
+// const AMDID2_DBE: u32 = 0x04000000;
+// const AMDID2_PTSC: u32 = 0x08000000;
+const AMDID2_PTSCEL2I: u32 = 0x10000000;
+const AMDID_RDTSCP: u32 = 0x08000000;
+
+fn log2(n: u32) -> u32 {
+    debug_assert_ne!(n, 0);
+    if n.count_ones() == 1 {
+        n.trailing_zeros()
+    } else {
+        32 - n.leading_zeros()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::log2;
+    #[test]
+    fn test_log2() {
+        for i in 1..10 {
+            println!("log2({}) = {}", i, log2(i));
+        }
+    }
+}
 
 pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let eax_in = vcpu.read_reg(X86Reg::RAX).unwrap() as u32;
@@ -892,69 +945,68 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
     // FIX ME: can be optimized here
     let (mut eax, mut ebx, mut ecx, mut edx) = do_cpuid(eax_in, ecx_in);
     match eax_in {
-        0x01 => {
+        0x1 => {
+            /* Set the guest thread id into the apic ID field in CPUID. */
+            ebx &= 0x00ffffff;
+            ebx |= { gth.vm.read().unwrap().cores | 0xff } << 16;
+            ebx |= (gth.id & 0xff) << 24;
+
             /* Set the hypervisor bit to let the guest know it is
              * virtualized */
-            ecx |= 1 << 31;
-            /* Unset the monitor capability bit so that the guest does not
-             * try to use monitor/mwait. */
-            ecx &= !(1 << 3);
-            /* Unset the vmx capability bit so that the guest does not try
-             * to turn it on. */
-            ecx &= !(1 << 5);
-            /* Unset the perf capability bit so that the guest does not try
-             * to turn it on. */
-            ecx &= !(1 << 15);
+            ecx |= CPUID_HV;
+
+            ecx &= !(CPUID_MONITOR
+                | CPUID_VMX
+                | CPUID_SMX
+                | CPUID_EST
+                | CPUID_TM2
+                | CPUID_PDCM
+                | CPUID_TSC_DL);
+
             if (vmx_read_capability(VMXCap::CPU2)? >> 32) & CPU_BASED2_XSAVES_XRSTORS == 0 {
-                ecx &= !(1 << 26); // unset xsave if it is not supported in cpubased2
+                ecx &= !CPUID_XSAVE; // unset xsave if it is not supported in cpubased2
                 info!("indicate that xsave is not supported");
             }
-            if ecx & (1 << 26) == 0 || vcpu.read_reg(X86Reg::CR4)? & X86_CR4_OSXSAVE == 0 {
-                ecx &= !(1 << 27); // unset osxsave if it is not supported or it is not turned on
+            if ecx & CPUID_XSAVE == 0 || vcpu.read_reg(X86Reg::CR4)? & X86_CR4_OSXSAVE == 0 {
+                ecx &= !CPUID_OSXSAVE; // unset osxsave if it is not supported or it is not turned on
             } else {
-                ecx |= 1 << 27;
+                ecx |= CPUID_XSAVE;
             }
-            // remove tsc deadline
-            // ecx &= !(1 << 24);
 
-            let x2apic = 1 << 21;
             if gth.apic.msr_apic_base & (1 << 10) > 0 {
-                // warn!("gth.apic.msr = {:x}", gth.apic.msr_apic_base | (1 << 10))
-                ecx |= x2apic;
+                ecx |= CPUID_X2APIC;
             } else {
-                ecx &= !x2apic;
+                ecx &= !CPUID_X2APIC;
             }
-
-            /* Set the guest pcore id into the apic ID field in CPUID. */
-            ebx &= 0x0000ffff;
-            // FIX me, not finished
-            // ebx |= (current->vmm.nr_guest_pcores & 0xff) << 16;
-            // ebx |= (tf->tf_guest_pcoreid & 0xff) << 24;
-            ebx |= (1 & 0xff) << 16;
-            // FIX me: vcpu.id might not be appropriate. vcpu of macOS is more
-            // like an executor of virtual tasks. For a virtual kernel we should
-            // use the id of its virtual threads.
-            ebx |= (gth.id & 0xff) << 24;
-            // warn!(
-            //     "set number of logical processors = 1, apic id = {}",
-            //     vcpu.id()
-            // );
-            // unimplemented!();
         }
-        0x06 => {
-            eax = 0x4;
+        0x4 => {
+            if eax > 0 || ebx > 0 || ecx > 0 || edx > 0 {
+                let cores = { gth.vm.read().unwrap().cores };
+                eax &= 0x3ff;
+                eax |= (cores - 1) << 26;
+                let level = (eax >> 5) & 0x7;
+                let logical_cpus = if level >= 3 {
+                    THREADS_PER_CORE * cores
+                } else {
+                    THREADS_PER_CORE
+                };
+                eax |= (logical_cpus - 1) << 14;
+            }
+        }
+        0x6 => {
+            eax = CPUID_ARAT;
             ebx = 0;
             ecx = 0;
             edx = 0;
         }
-        0x07 => {
+        0x7 => {
             // /* Do not advertise TSC_ADJUST */
             // ebx &= !(1 << 1);
             eax = 0;
             ecx = 0;
             edx = 0;
             if ecx_in == 0 {
-                ebx = (CPUID_STDEXT_FSGSBASE
+                ebx = CPUID_STDEXT_FSGSBASE
                     | CPUID_STDEXT_BMI1
                     | CPUID_STDEXT_HLE
                     | CPUID_STDEXT_AVX2
@@ -964,47 +1016,120 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
                     | CPUID_STDEXT_AVX512F
                     | CPUID_STDEXT_AVX512PF
                     | CPUID_STDEXT_AVX512ER
-                    | CPUID_STDEXT_AVX512CD) as u32;
+                    | CPUID_STDEXT_AVX512CD;
             } else {
                 ebx = 0;
             }
         }
-        0x0a => {
+        0xa => {
             eax = 0;
             ebx = 0;
             ecx = 0;
             edx = 0;
         }
-        0x40000000 => {
+        0xb => {
+            let logical_cpus;
+            let width;
+            let level;
+            let x2paic_id;
+            if ecx_in == 0 {
+                logical_cpus = THREADS_PER_CORE;
+                width = log2(logical_cpus);
+                level = 1; //SMT, Vol2, Table 3-8. Information Returned by CPUID Instruction (Contd.)
+                x2paic_id = gth.id;
+            } else if ecx_in == 1 {
+                logical_cpus = THREADS_PER_CORE * { gth.vm.read().unwrap().cores };
+                width = log2(logical_cpus);
+                level = 2; // Core
+                x2paic_id = gth.id;
+            } else {
+                logical_cpus = 0;
+                width = 0;
+                level = 0;
+                x2paic_id = 0;
+            }
+            eax = width & 0x1f;
+            ebx = logical_cpus & 0xffff;
+            ecx = (level << 8) | (ecx_in & 0xff);
+            edx = x2paic_id;
+        }
+        0xd => {
+            if (vmx_read_capability(VMXCap::CPU2)? >> 32) & CPU_BASED2_XSAVES_XRSTORS == 0 {
+                eax = 0;
+                ebx = 0;
+                ecx = 0;
+                edx = 0;
+            } else {
+                unimplemented!("CPUID 0xd unimplemented");
+            }
+        }
+        0x4000_0000 => {
             /* Signal the use of KVM. */
-            eax = 0;
+            eax = 0x4000_0000;
             // "KVMKVMKVM\0\0\0"
             // FIX me: temporarily remove this signal
             // ebx = 0x4b4d564b;
             // ecx = 0x564b4d56;
             // edx = 0x4d;
-            ebx = unsafe { std::mem::transmute(*b"hype") };
+            // ebx = unsafe { std::mem::transmute(*b"hype") };
         }
-        0x40000003 => {
-            /* Hypervisor Features. */
-            /* Unset the monitor capability bit so that the guest does not
-             * try to use monitor/mwait. */
-            edx &= !(1 << 0);
+        0x8000_0001 => {
+            /*
+             * Hide SVM and Topology Extension features from guest.
+             */
+            ecx &= !(AMDID2_SVM | AMDID2_TOPOLOGY);
+
+            /*
+             * Don't advertise extended performance counter MSRs
+             * to the guest.
+             */
+            ecx &= !(AMDID2_PCXC);
+            ecx &= !(AMDID2_PNXC);
+            ecx &= !(AMDID2_PTSCEL2I);
+
+            /*
+             * Don't advertise Instruction Based Sampling feature.
+             */
+            ecx &= !(AMDID2_IBS);
+
+            /* NodeID MSR not available */
+            ecx &= !(AMDID2_NODE_ID);
+
+            /* Don't advertise the OS visible workaround feature */
+            ecx &= !(AMDID2_OSVW);
+
+            /*
+             * Hide rdtscp/ia32_tsc_aux until we know how
+             * to deal with them.
+             */
+            edx &= !(AMDID_RDTSCP);
         }
-        0x40000100 => {
-            /* Signal the use of AKAROS. */
+        0x8000_0007 => {
             eax = 0;
-            // "AKAROSINSIDE"
-            ebx = 0x52414b41;
-            ecx = 0x4e49534f;
-            edx = 0x45444953;
+            ebx = 0;
+            ecx = 0;
+            edx = 1 << 8; // invariant TSC.
         }
-        /* Hypervisor Features. */
-        0x40000103 => {
-            /* Unset the monitor capability bit so that the guest does not
-             * try to use monitor/mwait. */
-            edx &= !(1 << 0);
-        }
+        // 0x40000003 => {
+        //     /* Hypervisor Features. */
+        //     /* Unset the monitor capability bit so that the guest does not
+        //      * try to use monitor/mwait. */
+        //     edx &= !(1 << 0);
+        // }
+        // 0x40000100 => {
+        //     /* Signal the use of AKAROS. */
+        //     eax = 0;
+        //     // "AKAROSINSIDE"
+        //     ebx = 0x52414b41;
+        //     ecx = 0x4e49534f;
+        //     edx = 0x45444953;
+        // }
+        // /* Hypervisor Features. */
+        // 0x40000103 => {
+        //     /* Unset the monitor capability bit so that the guest does not
+        //      * try to use monitor/mwait. */
+        //     edx &= !(1 << 0);
+        // }
         _ => {}
     }
     vcpu.write_reg(X86Reg::RAX, eax as u64).unwrap();
