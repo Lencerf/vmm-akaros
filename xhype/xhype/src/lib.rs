@@ -1,4 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+#![allow(unused_imports)]
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(non_upper_case_globals)]
 #![cfg_attr(feature = "vthread_closure", feature(fn_traits))]
 mod apic;
 #[allow(dead_code)]
