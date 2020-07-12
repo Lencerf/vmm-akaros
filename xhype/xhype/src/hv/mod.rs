@@ -427,6 +427,13 @@ impl VCPU {
         check_ret(unsafe { hv_vcpu_run(self.id) }, "hv_vcpu_run")
     }
 
+    pub fn run_until(&self, deadline: u64) -> Result<(), Error> {
+        check_ret(
+            unsafe { hv_vcpu_run_until(self.id, deadline) },
+            "hv_vcpu_run_until",
+        )
+    }
+
     pub fn read_vmcs(&self, field: u32) -> Result<u64, Error> {
         let mut value = 0;
         match unsafe { hv_vmx_vcpu_read_vmcs(self.id, field, &mut value) } {
@@ -531,7 +538,7 @@ impl VCPU {
             cap2ctrl(cap_entry, VMENTRY_GUEST_IA32E),
         )?;
 
-        self.write_vmcs(VMCS_CTRL_EXC_BITMAP, 0xffffffff & !(1 << 14))?;
+        self.write_vmcs(VMCS_CTRL_EXC_BITMAP, 0xffffffff & !(1 << 14) & !(1 << 3))?;
 
         let cr0 = X86_CR0_NE | X86_CR0_PE | X86_CR0_PG;
         self.write_vmcs(VMCS_GUEST_CR0, cr0)?;
@@ -557,6 +564,13 @@ impl Drop for VCPU {
         self.set_space(&DEFAULT_MEM_SPACE).unwrap();
         check_ret(unsafe { hv_vcpu_destroy(self.id) }, "hv_vcpu_destroy").unwrap();
     }
+}
+
+pub fn interrupt_vcpu(ids: &[u32]) -> Result<(), Error> {
+    check_ret(
+        unsafe { hv_vcpu_interrupt(ids.as_ptr(), ids.len() as u32) },
+        "hv_vcpu_interrupt",
+    )
 }
 
 mod tests {
