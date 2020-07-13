@@ -789,6 +789,9 @@ pub fn default_vmcall_handler(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleR
                 print_num(vmcall_args, format);
             }
         }
+        4 => {
+            crate::print_stack(vcpu, 3);
+        }
         _ => {}
     };
     Ok(HandleResult::Next)
