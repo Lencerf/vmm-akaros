@@ -721,7 +721,7 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
             }
         }
         _ => {
-            if io_in(qual) && io_size(qual) == 1 {
+            if !io_in(qual) && io_size(qual) == 1 {
                 warn!(
                     "silently accept OUT imm8, al, port = {:x}, rax = {:x}",
                     port, rax,
