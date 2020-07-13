@@ -51,7 +51,7 @@ use std::sync::{Arc, RwLock};
 use vmexit::*;
 use x86::*;
 
-pub fn print_stack(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
+fn print_stack_inner(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
     let rip = vcpu.read_reg(X86Reg::RIP)?;
     println!("current rip = {:x}", rip);
     let mut rbp = vcpu.read_reg(X86Reg::RBP)?;
@@ -67,6 +67,13 @@ pub fn print_stack(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
         rbp = read_host_mem::<u64>(rbp_physical, 0);
     }
     Ok(())
+}
+
+pub fn print_stack(vcpu: &VCPU, depth: i32) {
+    match print_stack_inner(vcpu, depth) {
+        Ok(_) => (),
+        Err(e) => error!("error happens in print_stack(): {:?}", e),
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -235,7 +242,7 @@ impl GuestThread {
         let result = self.run_on_inner(vcpu);
         if result.is_err() {
             error!("last rip = {:x}", vcpu.read_reg(X86Reg::RIP)?);
-            print_stack(vcpu, 3)?;
+            print_stack(vcpu, 4);
         }
         vcpu.set_space(&DEFAULT_MEM_SPACE)?;
         trace!("set vcpu back {} space to 0", vcpu.id());
