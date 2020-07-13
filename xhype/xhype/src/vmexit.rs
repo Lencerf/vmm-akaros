@@ -412,7 +412,7 @@ arr!(static MSR_HANDLERS: [MSRHander; _] = [
     MSRHander(MSR_EFER, emsr_efer),
     MSRHander(MSR_IA32_MCG_CAP, emsr_rdonly),
     MSRHander(MSR_IA32_MCG_STATUS, emsr_rdonly),
-    MSRHander(MISC_FEATURE_ENABLES, emsr_rdonly),
+    MSRHander(MISC_FEATURE_ENABLES, emsr_gp),
     MSRHander(MSR_PLATFORM_INFO, emsr_platform_info),
 ]);
 
