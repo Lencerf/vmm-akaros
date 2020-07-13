@@ -78,31 +78,31 @@ pub fn simulate_paging(vcpu: &VCPU, addr_v: u64) -> Result<u64, Error> {
     }
     let cr3 = vcpu.read_reg(X86Reg::CR3)?;
     // println!("cr3 = {:x}", cr3);
-    let pml4e: u64 = read_host_mem(cr3 & !0xfff, pml4_index(addr_v));
+    let pml4e: u64 = read_host_mem((cr3 & !0xfff) & ADDR_MASK, pml4_index(addr_v));
     // println!("pml4e = {:x}", pml4e);
     if pml4e & PG_P == 0 {
-        return Err("simulate_paging: page fault at pml4e\n")?;
+        return Err("simulate_paging: page fault at pml4e")?;
     }
-    let pdpte: u64 = read_host_mem(pml4e & !0xfff, pdpt_index(addr_v));
+    let pdpte: u64 = read_host_mem((pml4e & !0xfff) & ADDR_MASK, pdpt_index(addr_v));
     // println!("pdpte = {:x}", pdpte);
     if pdpte & PG_P == 0 {
-        return Err("simulate_paging: page fault at pdpte\n")?;
+        return Err("simulate_paging: page fault at pdpte")?;
     } else if pdpte & PG_PS > 0 {
         return Ok((pdpte & !0x3fffffff) | (addr_v & 0x3fffffff));
     }
-    let pde: u64 = read_host_mem(pdpte & !0xfff, pd_index(addr_v));
+    let pde: u64 = read_host_mem((pdpte & !0xfff) & ADDR_MASK, pd_index(addr_v));
     // println!("pde = {:x}", pde);
     if pde & PG_P == 0 {
-        return Err("simulate_paging: page fault at pde\n")?;
+        return Err("simulate_paging: page fault at pde")?;
     } else if pde & PG_PS > 0 {
         return Ok((pde & !0x1fffff) | (addr_v & 0x1fffff));
     }
-    let pte: u64 = read_host_mem(pde & !0xfff, pt_index(addr_v));
+    let pte: u64 = read_host_mem((pde & !0xfff) & ADDR_MASK, pt_index(addr_v));
     // println!("pte = {:x}", pte);
     if pte & PG_P == 0 {
-        return Err("simulate_paging: page fault at pte\n")?;
+        return Err("simulate_paging: page fault at pte")?;
     } else {
-        Ok((pte & !0xfff) | (addr_v & 0xfff))
+        Ok(((pte & !0xfff) | (addr_v & 0xfff)) & ADDR_MASK)
     }
 }
 
