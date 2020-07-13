@@ -271,10 +271,13 @@ fn emsr_miscenable(
         if new_value == misc_enable {
             Ok(HandleResult::Next)
         } else {
-            Err(Error::Unhandled(
-                VMX_REASON_WRMSR,
-                "write a different value to misc_enable",
-            ))
+            error!("just accept misc_enable {:x}", new_value);
+
+            Ok(HandleResult::Next)
+            // Err(Error::Unhandled(
+            //     VMX_REASON_WRMSR,
+            //     "write a different value to misc_enable, 0x1a0",
+            // ))
         }
     }
 }
