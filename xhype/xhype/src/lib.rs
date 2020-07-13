@@ -276,7 +276,7 @@ impl GuestThread {
             } else {
                 irq_count += 1;
             }
-            if irq_count > 300 {
+            if irq_count > 1000 {
                 error!(
                     "instr = {:02x?}， rip = {:x}",
                     get_vmexit_instr_more(vcpu, 32, 32)?,
@@ -292,7 +292,7 @@ impl GuestThread {
                     let nmi = (info >> 12) & 1 == 1;
                     let e_type = (info >> 8) & 0b111;
                     let vector = info & 0xf;
-                    info!(
+                    warn!(
                         "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
                         valid, nmi, e_type, vector, code
                     );
@@ -305,7 +305,27 @@ impl GuestThread {
                     }
                     return Err(Error::Unhandled(reason, "unhandled exception"));
                 }
-                VMX_REASON_IRQ => HandleResult::Resume,
+                VMX_REASON_IRQ => {
+                    let info = vcpu.read_vmcs(VMCS_RO_VMEXIT_IRQ_INFO)?;
+                    let code = vcpu.read_vmcs(VMCS_RO_VMEXIT_IRQ_ERROR)?;
+                    let valid = (info >> 31) & 1 == 1;
+                    let nmi = (info >> 12) & 1 == 1;
+                    let e_type = (info >> 8) & 0b111;
+                    let vector = info & 0xf;
+                    if valid {
+                        error!(
+                            "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
+                            valid, nmi, e_type, vector, code
+                        );
+                        HandleResult::Exit
+                    } else {
+                        // error!(
+                        //     "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
+                        //     valid, nmi, e_type, vector, code
+                        // );
+                        HandleResult::Resume
+                    }
+                }
                 VMX_REASON_CPUID => handle_cpuid(&vcpu, self)?,
                 VMX_REASON_HLT => HandleResult::Exit,
                 VMX_REASON_VMCALL => handle_vmcall(&vcpu, self)?,
