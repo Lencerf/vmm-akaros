@@ -38,7 +38,10 @@ use cpuid::do_cpuid;
 use err::Error;
 use hv::vmx::*;
 use hv::X86Reg;
-use hv::{MemSpace, DEFAULT_MEM_SPACE, HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE, VCPU};
+use hv::{
+    interrupt_vcpu, MemSpace, DEFAULT_MEM_SPACE, HV_MEMORY_EXEC, HV_MEMORY_READ, HV_MEMORY_WRITE,
+    VCPU,
+};
 use ioapic::IoApic;
 #[allow(unused_imports)]
 use log::*;
@@ -266,7 +269,11 @@ impl GuestThread {
         let mut ept_count = 0;
         let mut irq_count = 0;
         loop {
-            vcpu.run()?;
+            if let Some(deadline) = self.apic.next_timer_ns {
+                vcpu.run_until(deadline)?;
+            } else {
+                vcpu.run()?;
+            }
             let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
             let rip = vcpu.read_reg(X86Reg::RIP)?;
             trace!("vm exit reason = {}, rip = {:x}", reason, rip);
@@ -326,6 +333,13 @@ impl GuestThread {
                         HandleResult::Resume
                     }
                 }
+                VMX_REASON_IRQ_WND => {
+                    debug_assert_eq!(vcpu.read_reg(X86Reg::RFLAGS)? & FL_IF, FL_IF);
+                    let mut ctrl_cpu = vcpu.read_vmcs(VMCS_CTRL_CPU_BASED)?;
+                    ctrl_cpu &= !CPU_BASED_IRQ_WND;
+                    vcpu.write_vmcs(VMCS_CTRL_CPU_BASED, ctrl_cpu)?;
+                    HandleResult::Resume
+                }
                 VMX_REASON_CPUID => handle_cpuid(&vcpu, self)?,
                 VMX_REASON_HLT => HandleResult::Exit,
                 VMX_REASON_VMCALL => handle_vmcall(&vcpu, self)?,
@@ -341,7 +355,7 @@ impl GuestThread {
                         ept_count = 0;
                         last_physical_addr = physical_addr;
                     }
-                    if ept_count > 10 {
+                    if ept_count > 200 {
                         error!(
                             "EPT violation at {:x} for {} times",
                             last_physical_addr, ept_count
@@ -355,6 +369,7 @@ impl GuestThread {
                     }
                 }
                 VMX_REASON_XSETBV => handle_xsetbv(&vcpu, self)?,
+                VMX_REASON_VMX_TIMER_EXPIRED => handle_timer_expired(&vcpu, self)?,
                 _ => {
                     info!("Unhandled reason = {}", reason);
                     if reason < VMX_REASON_MAX {
@@ -372,6 +387,7 @@ impl GuestThread {
                 }
                 HandleResult::Resume => (),
             };
+            self.apic.inject_interrupt(vcpu)?;
         }
         Ok(())
     }
