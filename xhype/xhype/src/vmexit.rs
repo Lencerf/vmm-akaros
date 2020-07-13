@@ -14,6 +14,7 @@ use crate::decode::emulate_mem_insn;
 use crate::hv::{vmx_read_capability, VMXCap};
 use crate::ioapic::ioapic_access;
 use crate::pit::{pit_cmd_handler, pit_data_handle};
+use crate::utils::{get_bus_frequency, get_tsc_frequency};
 use log::{error, info, trace, warn};
 use std::mem::size_of;
 
@@ -278,6 +279,25 @@ fn emsr_miscenable(
     }
 }
 
+fn emsr_platform_info(
+    _msr: u32,
+    read: bool,
+    _new_value: u64,
+    vcpu: &VCPU,
+    _gth: &GuestThread,
+) -> Result<HandleResult, Error> {
+    let ratio = (get_tsc_frequency() / get_bus_frequency()) & 0xff;
+    let platform_info = (ratio << 8) | (ratio << 40);
+    if read {
+        write_msr_to_reg(platform_info, vcpu)
+    } else {
+        Err(Error::Unhandled(
+            VMX_REASON_WRMSR,
+            "platform info msr is read-only",
+        ))
+    }
+}
+
 fn emsr_efer(
     _msr: u32,
     read: bool,
@@ -390,6 +410,7 @@ arr!(static MSR_HANDLERS: [MSRHander; _] = [
     MSRHander(MSR_IA32_MCG_CAP, emsr_rdonly),
     MSRHander(MSR_IA32_MCG_STATUS, emsr_rdonly),
     MSRHander(MISC_FEATURE_ENABLES, emsr_rdonly),
+    MSRHander(MSR_PLATFORM_INFO, emsr_platform_info),
 ]);
 
 pub fn handle_msr_access(
@@ -939,17 +960,6 @@ fn log2(n: u32) -> u32 {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::log2;
-    #[test]
-    fn test_log2() {
-        for i in 1..10 {
-            println!("log2({}) = {}", i, log2(i));
-        }
-    }
-}
-
 pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let eax_in = vcpu.read_reg(X86Reg::RAX).unwrap() as u32;
     let ecx_in = vcpu.read_reg(X86Reg::RCX).unwrap() as u32;
@@ -1157,4 +1167,24 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
         edx
     );
     Ok(HandleResult::Next)
+}
+
+#[cfg(test)]
+mod test {
+    use super::log2;
+    #[test]
+    fn test_log2() {
+        for i in 1..10 {
+            println!("log2({}) = {}", i, log2(i));
+        }
+    }
+
+    use super::{get_bus_frequency, get_tsc_frequency};
+    #[test]
+    fn test_sysctl() {
+        println!("tsc f = {}", get_bus_frequency());
+        println!("bus f = {}", get_tsc_frequency());
+        // let b = sysctl_u64("hw.busfrequency");
+        // println!("but f = {}", b);
+    }
 }
