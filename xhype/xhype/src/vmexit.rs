@@ -1033,7 +1033,7 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
                 ebx = CPUID_STDEXT_FSGSBASE
                     | CPUID_STDEXT_BMI1
                     | CPUID_STDEXT_HLE
-                    | CPUID_STDEXT_AVX2
+                    // | CPUID_STDEXT_AVX2
                     | CPUID_STDEXT_BMI2
                     | CPUID_STDEXT_ERMS
                     | CPUID_STDEXT_RTM
