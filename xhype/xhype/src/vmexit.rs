@@ -146,10 +146,10 @@ fn get_creg(num: u64) -> X86Reg {
 pub fn handle_cr(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error> {
     let qual = vcpu.read_vmcs(VMCS_RO_EXIT_QUALIFIC)?;
     let creg = get_creg(qual & 0xf);
-    let access_type = (qual << 4) & 0b11;
-    let lmsw_type = (qual << 6) & 0b1;
-    let reg = get_guest_reg((qual << 8) & 0xf);
-    let source_data = (qual << 16) & 0xffff;
+    let access_type = (qual >> 4) & 0b11;
+    let lmsw_type = (qual >> 6) & 0b1;
+    let reg = get_guest_reg((qual >> 8) & 0xf);
+    let source_data = (qual >> 16) & 0xffff;
     let old_value = vcpu.read_reg(creg)?;
     info!(
         "{:?}={:x}, access={:x}, lmsw_type={:x}, reg={:?}, source={:x}",
