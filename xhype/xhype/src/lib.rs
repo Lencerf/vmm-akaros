@@ -265,7 +265,7 @@ impl GuestThread {
 
         // vcpu.dump().unwrap();
         let mut result: HandleResult;
-        let mut last_physical_addr = 0;
+        let mut last_physical_addr: Option<u64> = None;
         let mut ept_count = 0;
         let mut irq_count = 0;
         loop {
@@ -349,23 +349,36 @@ impl GuestThread {
                 VMX_REASON_WRMSR => handle_msr_access(false, &vcpu, self)?,
                 VMX_REASON_EPT_VIOLATION => {
                     let physical_addr = vcpu.read_vmcs(VMCS_GUEST_PHYSICAL_ADDRESS)?;
-                    if physical_addr == last_physical_addr {
-                        ept_count += 1;
-                    } else {
-                        ept_count = 0;
-                        last_physical_addr = physical_addr;
-                    }
-                    if ept_count > 200 {
-                        error!(
-                            "EPT violation at {:x} for {} times",
-                            last_physical_addr, ept_count
-                        );
-                        return Err(Error::Unhandled(
-                            reason,
-                            "too many EPT faults at the same address",
-                        ));
-                    } else {
-                        handle_ept_violation(physical_addr as usize, vcpu, self)?
+                    let r = handle_ept_violation(physical_addr as usize, vcpu, self);
+                    match r {
+                        Err(e) => return Err(e),
+                        Ok(HandleResult::Resume) => {
+                            if last_physical_addr == Some(physical_addr) {
+                                ept_count += 1;
+                            } else {
+                                ept_count = 1;
+                                last_physical_addr = Some(physical_addr);
+                            }
+                            if ept_count > 10 {
+                                error!(
+                                    "EPT violation at {:x} for {} times",
+                                    last_physical_addr.unwrap(),
+                                    ept_count
+                                );
+                                print_stack(vcpu, 10);
+                                return Err(Error::Unhandled(
+                                    reason,
+                                    "too many EPT faults at the same address",
+                                ));
+                            } else {
+                                HandleResult::Resume
+                            }
+                        }
+                        Ok(v) => {
+                            ept_count = 0;
+                            last_physical_addr = None;
+                            v
+                        }
                     }
                 }
                 VMX_REASON_XSETBV => handle_xsetbv(&vcpu, self)?,
