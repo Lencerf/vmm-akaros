@@ -928,6 +928,11 @@ const CPUID_HV: u32 = 1 << 31;
 
 const CPUID_ARAT: u32 = 1 << 2;
 
+const CPUID_ACPI: u32 = 1 << 22;
+const CPUID_TM: u32 = 1 << 29;
+const CPUID_DS: u32 = 1 << 21;
+const CPUID_HTT: u32 = 1 << 28;
+
 const THREADS_PER_CORE: u32 = 1;
 
 //const AMDID2_LAHF: u32 = 0x00000001;
@@ -1005,6 +1010,9 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
             } else {
                 ecx &= !CPUID_X2APIC;
             }
+
+            // hide thermal monitoring
+            edx &= !(CPUID_ACPI | CPUID_TM | CPUID_DS)
         }
         0x4 => {
             if eax > 0 || ebx > 0 || ecx > 0 || edx > 0 {
