@@ -400,6 +400,13 @@ impl GuestThread {
                 }
                 HandleResult::Resume => (),
             };
+            if result == HandleResult::Next {
+                let mut irq_ignore = vcpu.read_vmcs(VMCS_GUEST_IGNORE_IRQ)?;
+                if irq_ignore & 0b11 != 0 {
+                    irq_ignore &= !0b11;
+                    vcpu.write_vmcs(VMCS_GUEST_IGNORE_IRQ, irq_ignore)?;
+                }
+            }
             self.apic.inject_interrupt(vcpu)?;
         }
         Ok(())
