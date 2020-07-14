@@ -255,20 +255,20 @@ pub fn load_linux64(
             r#type: E820_RAM,
         };
         index += 1;
-        let rd_end = RD_ADDR + round_up(rd_size);
-        bp.e820_table[index] = E820Entry {
-            addr: rd_end as u64,
-            size: (high_mem.start - rd_end) as u64,
-            r#type: E820_RESERVED,
-        };
-        index += 1;
+    // let rd_end = RD_ADDR + round_up(rd_size);
+    // bp.e820_table[index] = E820Entry {
+    //     addr: rd_end as u64,
+    //     size: (high_mem.start - rd_end) as u64,
+    //     r#type: E820_RESERVED,
+    // };
+    // index += 1;
     } else {
-        bp.e820_table[index] = E820Entry {
-            addr: LOW64K as u64,
-            size: (high_mem.start - LOW64K) as u64,
-            r#type: E820_RESERVED,
-        };
-        index += 1;
+        // bp.e820_table[index] = E820Entry {
+        //     addr: LOW64K as u64,
+        //     size: (high_mem.start - LOW64K) as u64,
+        //     r#type: E820_RESERVED,
+        // };
+        // index += 1;
     }
     bp.e820_table[index] = E820Entry {
         addr: high_mem.start as u64,
