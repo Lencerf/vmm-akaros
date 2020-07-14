@@ -96,6 +96,10 @@ fn irr_offset_vec(vector: u8) -> usize {
     OFFSET_IRR0 + (vector as usize / 32) * 0x10
 }
 
+fn tmr_offset_vec(vector: u8) -> usize {
+    OFFSET_TMR0 + (vector as usize / 32) * 0x10
+}
+
 pub struct Apic {
     pub id: u32,
     pub msr_apic_base: u64,
@@ -176,6 +180,13 @@ impl Apic {
         debug_assert_eq!(isr & vector_bit, 0);
         self.apic_page.write(isr | vector_bit, offset_isr, 0);
         info!("set isr, {}", vector);
+    }
+
+    fn tmr_is_set(&self, vector: u8) -> bool {
+        let offset_tmr = tmr_offset_vec(vector);
+        let tmr: u32 = self.apic_page.read(offset_tmr, 0);
+        let vector_bit = 1 << (vector % 32);
+        tmr & vector_bit == vector_bit
     }
 
     pub fn read(&self, offset: usize) -> Result<u64, Error> {
@@ -380,7 +391,9 @@ impl Apic {
                 if let Some(vector) = self.isr_vec.pop() {
                     self.clear_isr(vector);
                     self.update_ppr();
-                    error!("EOI to vector {}, check TMR", vector);
+                    if self.tmr_is_set(vector) {
+                        error!("EOI to vector {}, need to notify io apic", vector);
+                    }
                 } else {
                     error!("meaningless EOI");
                 }
