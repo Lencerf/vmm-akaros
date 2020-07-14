@@ -1,4 +1,5 @@
 use chrono::{Datelike, Timelike, Utc};
+use log::*;
 
 pub struct Rtc {
     pub reg: u8,
@@ -18,7 +19,10 @@ impl Rtc {
                 0x09 => Utc::now().naive_local().year() as u32 - 2000,
                 0x0a => 0x20, //http://faydoc.tripod.com/structures/04/0406.htm
                 0x0b => 0b10, // 24hour, http://faydoc.tripod.com/structures/04/0407.htm
-                _ => unreachable!(),
+                _ => {
+                    warn!("return 0xff for unknown rtc register 0x{:x}", self.reg);
+                    0xff
+                }
             },
             _ => unreachable!(),
         }
