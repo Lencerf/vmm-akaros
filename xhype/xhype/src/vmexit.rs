@@ -527,7 +527,16 @@ fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<Hand
         if bdf == 0 {
             // only host bridge is supported
             if io_in(qual) {
-                let mut v = { gth.vm.read().unwrap().host_bridge_data[offset as usize >> 2] };
+                warn!("read host bridge data offset: {:x}", offset);
+                let mut v = {
+                    let reg = offset as usize >> 2;
+                    let data = gth.vm.read().unwrap().host_bridge_data;
+                    if reg < data.len() {
+                        data[reg]
+                    } else {
+                        0
+                    }
+                };
                 if size == 1 {
                     v >>= (port & 3) * 8;
                 } else if size == 2 {
@@ -543,14 +552,21 @@ fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<Hand
                 vcpu.write_reg(X86Reg::RAX, set_all_zero(rax, size) | v as u64)?;
             } else {
                 if size == 4 {
-                    gth.vm.write().unwrap().host_bridge_data[offset as usize >> 2] =
-                        (rax & 0xffffffff) as u32;
+                    let reg = offset as usize >> 2;
+                    let value = (rax & 0xffffffff) as u32;
+                    let mut data = gth.vm.write().unwrap().host_bridge_data;
+                    if reg < data.len() {
+                        data[reg] = value;
+                    } else {
+                        error!(
+                            "write data {:x} to port={:x}, offset={:x}",
+                            rax, port, offset
+                        );
+                    }
                 } else {
-                    trace!(
+                    error!(
                         "write data {:x} to port={:x}, offset={:x}",
-                        rax,
-                        port,
-                        offset
+                        rax, port, offset
                     );
                 }
             }
@@ -624,7 +640,12 @@ pub fn unknown_port_handler(
     let rax = vcpu.read_reg(X86Reg::RAX)?;
     let port = io_port(qual);
     if io_in(qual) {
-        error!("read from io port = {:x}, size = {}", port, io_size(qual));
+        error!(
+            "read from io port = {:x}, size = {}, return 0xff",
+            port,
+            io_size(qual)
+        );
+        vcpu.write_reg(X86Reg::RAX, set_all_one(rax, io_size(qual)))?;
     } else {
         error!(
             "write to io port = {:x}, rax={:x}, size = {}",
@@ -633,8 +654,7 @@ pub fn unknown_port_handler(
             io_size(qual)
         );
     }
-    error!("instruction: {:02x?}", get_vmexit_instr(vcpu));
-    Err(Error::Unhandled(VMX_REASON_IO, "unknown port"))
+    Ok(HandleResult::Next)
 }
 
 const CONFIG_DATA: u16 = 0xcfc;
