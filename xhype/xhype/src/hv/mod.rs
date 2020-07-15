@@ -524,10 +524,7 @@ impl VCPU {
         self.write_vmcs(VMCS_CTRL_PIN_BASED, cap2ctrl(cap_pin, 0))?;
         self.write_vmcs(
             VMCS_CTRL_CPU_BASED,
-            cap2ctrl(
-                cap_cpu,
-                CPU_BASED_HLT | CPU_BASED_CR8_LOAD | CPU_BASED_CR8_STORE,
-            ),
+            cap2ctrl(cap_cpu, CPU_BASED_CR8_LOAD | CPU_BASED_CR8_STORE),
         )?;
 
         // it looks like Hypervisor.framework does not support APIC virtualization
