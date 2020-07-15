@@ -961,7 +961,7 @@ pub fn handle_xsetbv(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Err
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn handle_timer_expired(vcpu: &VCPU, gth: &mut GuestThread) -> Result<HandleResult, Error> {
-    warn!("firel tiemr interrupt, should set irr");
+    info!("fire timer interrupt");
     gth.apic.fire_timer_interrupt(vcpu);
 
     Ok(HandleResult::Resume)

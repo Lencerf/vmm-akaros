@@ -59,12 +59,12 @@ use x86::*;
 
 fn print_stack_inner(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
     let rip = vcpu.read_reg(X86Reg::RIP)?;
-    println!("current rip = {:x}", rip);
+    warn!("current rip = {:x}", rip);
     let mut rbp = vcpu.read_reg(X86Reg::RBP)?;
     for i in 0..depth {
         let rbp_physical = simulate_paging(vcpu, rbp)?;
         let return_address_physical = simulate_paging(vcpu, rbp + 8)?;
-        println!(
+        warn!(
             "i = {}, rbp = {:x}, rip = {:x}",
             i,
             rbp,
