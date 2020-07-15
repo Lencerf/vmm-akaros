@@ -279,7 +279,7 @@ impl GuestThread {
             if let Some(deadline) = self.apic.next_timer_ns {
                 vcpu.run_until(deadline)?;
             } else {
-                vcpu.run()?;
+                vcpu.run_until(u64::MAX)?;
             }
             let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
             let rip = vcpu.read_reg(X86Reg::RIP)?;
@@ -389,7 +389,11 @@ impl GuestThread {
                     }
                 }
                 VMX_REASON_XSETBV => handle_xsetbv(&vcpu, self)?,
-                VMX_REASON_VMX_TIMER_EXPIRED => handle_timer_expired(&vcpu, self)?,
+                VMX_REASON_VMX_TIMER_EXPIRED => {
+                    // timer expiration should only happen when we set the timer.
+                    debug_assert!(self.apic.next_timer_ns.is_some());
+                    handle_timer_expired(&vcpu, self)?
+                }
                 _ => {
                     info!("Unhandled reason = {}", reason);
                     if reason < VMX_REASON_MAX {

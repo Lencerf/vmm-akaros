@@ -262,7 +262,7 @@ impl Apic {
             OFFSET_LVT_TIMER,
         ] {
             let v: u32 = self.apic_page.read(*offset, 0);
-            self.apic_page.write(v & !BIT_LVT_MASKED, *offset, 0);
+            self.apic_page.write(v | BIT_LVT_MASKED, *offset, 0);
         }
         self.update_timer_period();
     }
@@ -270,7 +270,7 @@ impl Apic {
     pub fn fire_timer_interrupt(&mut self, vcpu: &VCPU) {
         let timer_lvt: u32 = self.apic_page.read(OFFSET_LVT_TIMER, 0);
         let vector = lvt_vec(timer_lvt);
-        debug_assert_eq!(timer_lvt & BIT_LVT_MASKED, 0);
+        debug_assert_eq!(lvt_masked(timer_lvt), false);
         self.set_irr(vector);
 
         // set up the next timer interrupt
@@ -547,6 +547,7 @@ impl Apic {
         self.apic_page.write(lvt_init, OFFSET_LVT_LINT0, 0);
         self.apic_page.write(lvt_init, OFFSET_LVT_LINT1, 0);
         self.apic_page.write(lvt_init, OFFSET_LVT_ERROR, 0);
+        self.update_timer_period();
 
         // Figure 10-12. Interrupt Command Register (ICR)
         self.apic_page.write(0u32, OFFSET_ICR0, 0);
