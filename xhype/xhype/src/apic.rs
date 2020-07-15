@@ -158,7 +158,7 @@ impl Apic {
         let irr: u32 = self.apic_page.read(offset_irr, 0);
         let vector_bit = 1 << (vector % 32);
         if irr & vector_bit == vector_bit {
-            warn!("vector {} discarded", vector);
+            info!("vector {} discarded", vector);
         }
         self.apic_page.write(irr | vector_bit, offset_irr, 0);
         info!("set irr, {}", vector);
@@ -303,10 +303,15 @@ impl Apic {
                 if priority(vector) > priority(ppr) {
                     return Some(vector);
                 } else {
+                    info!(
+                        "find vector = {:x}, ppr = {:x} first interrupt priority is too small",
+                        vector, ppr
+                    );
                     break;
                 }
             }
         }
+        // warn!("find no interrupt");
         None
     }
 
@@ -321,6 +326,10 @@ impl Apic {
         self.update_ppr();
     }
 
+    pub fn has_pending_interrupt(&self) -> bool {
+        !self.get_intr_from_irr().is_none()
+    }
+
     pub fn inject_interrupt(&mut self, vcpu: &VCPU) -> Result<(), Error> {
         let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
         if let Some(vector) = self.get_intr_from_irr() {
@@ -333,21 +342,22 @@ impl Apic {
                         let entry_info = (1 << 31) | vector as u64;
                         vcpu.write_vmcs(VMCS_CTRL_VMENTRY_IRQ_INFO, entry_info)?;
                         self.mark_intr_in_service(vector);
+                        info!("injected interrupt {}", vector);
                         return Ok(());
                     } else {
-                        error!(
+                        info!(
                             "vmentry info irq valid, cannot inject {}, exitreason = {}",
                             vector, reason
                         );
                     }
                 } else {
                     error!(
-                        "cannot inject interrupt {}, blocking, reason = {}",
+                        "cannot inject interrupt {}, sti/movss blocking, reason = {}",
                         vector, reason
                     );
                 }
             } else {
-                error!(
+                info!(
                     "cannot inject interrupt, rflag & FL_IP = 0, cannot inject {}, reason = {}",
                     vector, reason
                 );
@@ -365,7 +375,7 @@ impl Apic {
     }
 
     pub fn write(&mut self, offset: usize, mut value: u64) -> Result<(), Error> {
-        if !self.x2mode() && offset != OFFSET_ICR0 {
+        if !(self.x2mode() && offset == OFFSET_ICR0) {
             value &= 0xffffffff;
         }
         match offset {
@@ -428,11 +438,12 @@ impl Apic {
                 self.apic_page.write(value as u32, OFFSET_SVR, 0);
             }
             OFFSET_ICR0 => {
-                error!("OS write to ICR0");
                 if self.x2mode() {
                     unimplemented!();
                 }
                 self.apic_page.write(value as u32, OFFSET_ICR0, 0);
+                let icr = (self.apic_page.read::<u32>(OFFSET_ICR32, 0) as u64) << 32 | value;
+                error!("OS write to ICR0, full icr = {:x}", icr);
             }
             OFFSET_ICR32 => {
                 self.apic_page.write(value as u32, OFFSET_ICR32, 0);
@@ -440,15 +451,15 @@ impl Apic {
             OFFSET_LVT_CMCI => error!("OFFSET_LVT_CMCI"),
             OFFSET_LVT_TIMER => {
                 let value = value as u32;
-                println!(
+                info!(
                     "new timer: masked: {}, mode: {}, idle: {}, vec: {:x}",
                     lvt_masked(value),
                     lvt_timer_mode(value),
                     lvt_idle(value),
                     lvt_vec(value)
                 );
-                error!("OFFSET_LVT_TIMER");
                 self.apic_page.write(value, OFFSET_LVT_TIMER, 0);
+                self.update_timer_period();
             }
             OFFSET_LVT_THERMAL => {
                 error!("OFFSET_LVT_THERMAL");
@@ -459,15 +470,17 @@ impl Apic {
                 self.apic_page.write(value as u32, offset, 0);
             }
             OFFSET_LVT_LINT0 => {
-                error!("OFFSET_LVT_LINT0");
+                if !lvt_masked(value as u32) {
+                    error!("OFFSET_LVT_LINT0, {:x}", value);
+                }
                 self.apic_page.write(value as u32, offset, 0);
             }
             OFFSET_LVT_LINT1 => {
-                error!("OFFSET_LVT_LINT1");
+                error!("OFFSET_LVT_LINT1, {:x}", value);
                 self.apic_page.write(value as u32, offset, 0);
             }
             OFFSET_LVT_ERROR => {
-                error!("OFFSET_LVT_ERROR");
+                error!("OFFSET_LVT_ERROR, {:x}", value);
                 self.apic_page.write(value as u32, offset, 0);
             }
             OFFSET_INIT_COUNT => {
@@ -475,7 +488,7 @@ impl Apic {
                 self.update_timer_period();
             }
             OFFSET_DCR => {
-                error!(
+                warn!(
                     "OS set divide configuration register to 0b{:b}",
                     value & 0b1011
                 );
@@ -554,7 +567,7 @@ pub fn apic_access(
 ) -> Result<(), Error> {
     let offset = gpa & 0xfffff;
     if store {
-        warn!(
+        info!(
             "store 0x{:x} to gpa = 0x{:x} offset = 0x{:x}",
             *reg_val, gpa, offset
         );
