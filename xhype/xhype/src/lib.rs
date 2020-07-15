@@ -22,8 +22,10 @@ pub mod linux;
 mod mach;
 mod pit;
 mod rtc;
+mod serial;
 pub mod utils;
 
+use utils::mach_abs_time_ns;
 #[allow(dead_code)]
 pub mod virtio;
 mod vmexit;
@@ -47,6 +49,7 @@ use ioapic::IoApic;
 use log::*;
 use mach::{vm_self_region, MachVMBlock};
 use pit::Pit;
+use serial::Serial;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
@@ -135,6 +138,8 @@ pub struct VirtualMachine {
     x86_host_xcr0: u64,
     pub(crate) rtc: Rtc,
     pub(crate) pit: Pit,
+    pub(crate) com1: Serial,
+    pub(crate) com2: Serial,
 }
 
 impl VirtualMachine {
@@ -157,6 +162,8 @@ impl VirtualMachine {
             x86_host_xcr0: vmm.x86_host_xcr0,
             rtc: Rtc { reg: 0 },
             pit: Pit::default(),
+            com1: Serial::default(),
+            com2: Serial::default(),
         };
         vm.gpa2hva_map()?;
         Ok(vm)

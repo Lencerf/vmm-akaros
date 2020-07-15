@@ -270,6 +270,7 @@ impl Apic {
     pub fn fire_timer_interrupt(&mut self, vcpu: &VCPU) {
         let timer_lvt: u32 = self.apic_page.read(OFFSET_LVT_TIMER, 0);
         let vector = lvt_vec(timer_lvt);
+        debug_assert_eq!(timer_lvt & BIT_LVT_MASKED, 0);
         self.set_irr(vector);
 
         // set up the next timer interrupt

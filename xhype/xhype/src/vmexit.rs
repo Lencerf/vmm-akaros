@@ -633,6 +633,11 @@ const PIT_1: u16 = 0x41;
 const PIT_2: u16 = 0x42;
 const PIT_CMD: u16 = 0x43;
 
+const COM1_BASE: u16 = 0x3f8;
+const COM1_MAX: u16 = 0x3ff;
+const COM2_BASE: u16 = 0x2f8;
+const COM2_MAX: u16 = 0x2ff;
+
 pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
     let qual = vcpu.read_vmcs(VMCS_RO_EXIT_QUALIFIC)?;
     let rax = vcpu.read_reg(X86Reg::RAX)?;
@@ -685,69 +690,98 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
                 pit_data_handle(vcpu, gth, port, io_in(qual))
             }
         }
-        0x61 => {
+        COM1_BASE..=COM1_MAX => {
             if io_in(qual) {
-                match io_size(qual) {
-                    1 => vcpu.write_reg(X86Reg::RAX, 0b11111111)?,
-                    2 => vcpu.write_reg(X86Reg::RAX, 0xffff)?,
-                    4 => vcpu.write_reg(X86Reg::RAX, 0xffffffff)?,
-                    _ => unreachable!(),
+                let mut vm = gth.vm.write().unwrap();
+                let v = vm.com1.read(port - COM1_BASE);
+                if v == 0xff {
+                    print_stack(vcpu, 10);
                 }
-                warn!("return all 1 to unknown port read request, {:x} ", port);
+                vcpu.write_reg(X86Reg::RAX, v as u64)?;
             } else {
-                warn!(
-                    "silent accept {:b} from port {:x}",
-                    vcpu.read_reg(X86Reg::RAX)?,
-                    port
-                );
+                let mut vm = gth.vm.write().unwrap();
+                vm.com1.write(port - COM1_BASE, (rax & 0xff) as u8);
             }
             Ok(HandleResult::Next)
         }
-        0x21 | 0xa1 => {
+        COM2_BASE..=COM2_MAX => {
             if io_in(qual) {
-                warn!("signifying there is no PIC");
-                vcpu.write_reg(X86Reg::RAX, rax | 0xff)?;
+                let mut vm = gth.vm.write().unwrap();
+                let v = vm.com2.read(port - 0x2f8);
+                vcpu.write_reg(X86Reg::RAX, v as u64)?;
             } else {
-                warn!("just accept {:x} to port {:x}", rax, port);
-            };
+                let mut vm = gth.vm.write().unwrap();
+                vm.com2.write(port - 0x2f8, (rax & 0xff) as u8);
+            }
             Ok(HandleResult::Next)
         }
-        0x80 => {
+        0x3e8..=0x3ef => {
             if io_in(qual) {
-                Err((VMX_REASON_IO, "cannot return value to port 0x80"))?
+                error!("read from com3, offset = {}", port - 0x3e8);
+                vcpu.write_reg(X86Reg::RAX, 0xffff)?;
             } else {
-                warn!("just accept {:x} to port {:x}", rax, port);
-                Ok(HandleResult::Next)
+                error!("write {:x} to com3, offset = {}", rax, port - 0x3e8);
             }
+            Ok(HandleResult::Next)
         }
-        _ => {
-            if !io_in(qual) && io_size(qual) == 1 {
-                warn!(
-                    "silently accept OUT imm8, al, port = {:x}, rax = {:x}",
-                    port, rax,
-                );
-                Ok(HandleResult::Next)
+        0x2e8..=0x2ef => {
+            if io_in(qual) {
+                error!("read from com4, offset = {}", port - 0x2e8);
+                vcpu.write_reg(X86Reg::RAX, 0xffff)?;
             } else {
-                unknown_port_handler(qual, vcpu, gth)
+                error!("write {:x} to com4, offset = {}", rax, port - 0x2e8);
             }
-            // warn!("rip = {:x}", vcpu.read_reg(X86Reg::RIP)?);
-            // let instruction = get_vmexit_instr(vcpu).unwrap();
-            // if instruction[0] == 0xe6 {
-            //     if port != 0x80 {
-            //         warn!(
-            //             "silently accept OUT imm8, al, port = {:x}, rax = {:x}, instr = {:02x?}",
-            //             port, rax, instruction
-            //         );
-            //     }
-            //     Ok(HandleResult::Next)
-            // } else if instruction == [0xe4, 0x21] {
-            //     warn!("signifying there is no PIC");
-            //     vcpu.write_reg(X86Reg::RAX, rax | 0xff)?;
-            //     Ok(HandleResult::Next)
-            // } else {
-            //     unknown_port_handler(qual, vcpu, gth)
-            // }
+            Ok(HandleResult::Next)
         }
+        // 0x87 => {
+        //     if io_in(qual) {
+        //         vcpu.write_reg(X86Reg::RAX, 0xff)?;
+        //         warn!("write 0xff to port 0x87");
+        //     } else {
+        //         warn!(
+        //             "accept {:b} from port {:x}",
+        //             vcpu.read_reg(X86Reg::RAX)?,
+        //             port
+        //         );
+        //     }
+        //     Ok(HandleResult::Next)
+        // }
+        // 0x61 => {
+        //     if io_in(qual) {
+        //         match io_size(qual) {
+        //             1 => vcpu.write_reg(X86Reg::RAX, 0b11111111)?,
+        //             2 => vcpu.write_reg(X86Reg::RAX, 0xffff)?,
+        //             4 => vcpu.write_reg(X86Reg::RAX, 0xffffffff)?,
+        //             _ => unreachable!(),
+        //         }
+        //         warn!("return all 1 to unknown port read request, {:x} ", port);
+        //     } else {
+        //         warn!(
+        //             "silent accept {:b} from port {:x}",
+        //             vcpu.read_reg(X86Reg::RAX)?,
+        //             port
+        //         );
+        //     }
+        //     Ok(HandleResult::Next)
+        // }
+        // 0x21 | 0xa1 => {
+        //     if io_in(qual) {
+        //         warn!("signifying there is no PIC");
+        //         vcpu.write_reg(X86Reg::RAX, rax | 0xff)?;
+        //     } else {
+        //         warn!("just accept {:x} to port {:x}", rax, port);
+        //     };
+        //     Ok(HandleResult::Next)
+        // }
+        // 0x80 => {
+        //     if io_in(qual) {
+        //         Err((VMX_REASON_IO, "cannot return value to port 0x80"))?
+        //     } else {
+        //         warn!("just accept {:x} to port {:x}", rax, port);
+        //         Ok(HandleResult::Next)
+        //     }
+        // }
+        _ => unknown_port_handler(qual, vcpu, gth),
     }
 }
 
