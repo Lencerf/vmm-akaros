@@ -1,65 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-#![cfg_attr(feature = "vthread_closure", feature(fn_traits))]
-#![allow(dead_code)]
 use std::env;
 use std::sync::{Arc, RwLock};
 use xhype::err::Error;
-use xhype::vthread::Builder;
-use xhype::{linux, vmcall, VMManager};
-
-static mut NUM_A: i32 = 4;
-static mut NUM_B: i32 = 2;
-
-fn change_a() {
-    unsafe {
-        NUM_A = 2;
-        vmcall(1, &GOOD_STR as *const &str as *const u8);
-    }
-}
-
-fn change_b() {
-    unsafe {
-        NUM_B = 100;
-    }
-    // panic!();
-}
-
-const GOOD_STR: &str = "good";
-const CLOSURE_STR: &str = "vmcall inside a clousre";
-
-fn vthread_test() {
-    println!("initially, a = {}, b = {}", unsafe { NUM_A }, unsafe {
-        NUM_B
-    });
-    let vmm = VMManager::new().unwrap();
-    let vm = Arc::new(RwLock::new(vmm.create_vm(1).unwrap()));
-    let vth_a = if cfg!(feature = "vthread_closure") {
-        Builder::new(&vm)
-            .spawn(|| unsafe {
-                NUM_A = 3;
-                vmcall(1, &CLOSURE_STR as *const &str as *const u8);
-            })
-            .unwrap()
-    } else {
-        Builder::new(&vm).spawn(change_a).unwrap()
-    };
-    let vth_b = if cfg!(feature = "vthread_closure") {
-        Builder::new(&vm)
-            .spawn(|| unsafe {
-                NUM_B = 101;
-            })
-            .unwrap()
-    } else {
-        Builder::new(&vm)
-            .name("vth_b".to_string())
-            .spawn(change_b)
-            .unwrap()
-    };
-    vth_a.join().unwrap();
-    let b_result = vth_b.join();
-    println!("b_result = {:?}", b_result);
-    println!("a = {}, b = {}", unsafe { NUM_A }, unsafe { NUM_B });
-}
+use xhype::{linux, VMManager};
 
 fn kernel_test() {
     let memsize = 1 << 30; // 1GB
@@ -86,6 +29,5 @@ fn kernel_test() {
 
 fn main() {
     env_logger::init();
-    vthread_test();
     kernel_test();
 }
