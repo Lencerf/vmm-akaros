@@ -14,6 +14,7 @@ use crate::decode::emulate_mem_insn;
 use crate::hv::{vmx_read_capability, VMXCap};
 use crate::ioapic::ioapic_access;
 use crate::pit::{pit_cmd_handler, pit_data_handle};
+use crate::print_stack;
 use crate::utils::{get_bus_frequency, get_tsc_frequency};
 use log::{error, info, trace, warn};
 use std::mem::size_of;
@@ -336,8 +337,16 @@ fn emsr_rdonly(
         };
         write_msr_to_reg(r, vcpu)
     } else {
-        warn!("write {:x} to read-only msr {:x}", new_value, msr);
-        Ok(HandleResult::Next)
+        if new_value == 0 {
+            info!("write {:x} to read-only msr {:x}", new_value, msr);
+            Ok(HandleResult::Next)
+        } else {
+            error!(
+                "write different value {:x} to read-only msr {:x}",
+                new_value, msr
+            );
+            Ok(HandleResult::Next)
+        }
     }
 }
 
@@ -414,6 +423,10 @@ arr!(static MSR_HANDLERS: [MSRHander; _] = [
     MSRHander(MSR_IA32_MCG_STATUS, emsr_rdonly),
     MSRHander(MISC_FEATURE_ENABLES, emsr_gp),
     MSRHander(MSR_PLATFORM_INFO, emsr_platform_info),
+    MSRHander(0x64e, emsr_gp),//MSR_PPERF
+    MSRHander(0x34, emsr_gp),//MSR_PPERF
+    MSRHander(0x64d, emsr_gp),//MSR_PPERF
+    MSRHander(0x639, emsr_gp)
 ]);
 
 pub fn handle_msr_access(
@@ -445,7 +458,8 @@ pub fn handle_msr_access(
             return handler.1(ecx, read, new_value, vcpu, gth);
         }
     }
-    emsr_unimpl(ecx, read, new_value, vcpu, gth)
+    emsr_gp(ecx, read, new_value, vcpu, gth)
+    // emsr_unimpl(ecx, read, new_value, vcpu, gth)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
