@@ -87,7 +87,7 @@ impl Builder {
         F: Send + 'static,
     {
         let stack_size = round_up(self.stack_size.unwrap_or(VTHREAD_STACK_SIZE));
-        let vth = VThread::new(&self.vm, stack_size, F::call_once as usize)?;
+        let mut vth = VThread::new(&self.vm, stack_size, F::call_once as usize)?;
         let handle = thread::Builder::new()
             .name(self.name.unwrap_or("<unnamed-vthread>".to_string()))
             .spawn(move || {
