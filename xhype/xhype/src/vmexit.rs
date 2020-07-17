@@ -1047,8 +1047,8 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
     match eax_in {
         0x1 => {
             /* Set the guest thread id into the apic ID field in CPUID. */
-            ebx &= 0x00ffffff;
-            ebx |= { gth.vm.read().unwrap().cores | 0xff } << 16;
+            ebx &= 0x0000ffff;
+            ebx |= { gth.vm.read().unwrap().cores & 0xff } << 16;
             ebx |= (gth.id & 0xff) << 24;
 
             /* Set the hypervisor bit to let the guest know it is
