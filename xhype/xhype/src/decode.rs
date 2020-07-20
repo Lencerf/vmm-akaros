@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 use crate::hv::vmx::get_guest_reg;
+use crate::print_stack;
 #[allow(unused_imports)]
 use crate::{Error, GuestThread, HandleResult, X86Reg, VCPU};
 #[allow(unused_imports)]
 use log::{error, info, trace, warn};
-
-type MemAccessFn = fn(&mut GuestThread, usize, &mut u64, u8, bool) -> Result<(), Error>;
+type MemAccessFn = fn(&VCPU, &mut GuestThread, usize, &mut u64, u8, bool) -> Result<(), Error>;
 
 #[derive(Debug)]
 pub struct X86Decode {
@@ -242,6 +242,7 @@ fn execute_op(
             let reg = get_guest_reg(mod_reg? as u64);
             let mut reg_value = vcpu.read_reg(reg)?;
             access(
+                vcpu,
                 gth,
                 gpa,
                 &mut reg_value,
@@ -271,6 +272,9 @@ pub fn emulate_mem_insn(
     let mut decode = X86Decode::default();
     decode_prefix(insn, &mut decode);
     decode_opcode(insn, &mut decode)?;
+    // if decode.is_store && gpa == 0x1000000050 {
+    //     print_stack(vcpu, 10);
+    // }
     match execute_op(vcpu, gth, insn, &decode, access, gpa) {
         Ok(()) => Ok(()),
         Err(e) => {

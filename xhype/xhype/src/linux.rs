@@ -6,6 +6,7 @@ use super::Error;
 use super::{GuestThread, VirtualMachine, X86Reg};
 use crate::bios::setup_bios_tables;
 use crate::utils::round_up;
+use crate::virtio::{VirtioId, VirtioMmioDev, VirtioVqDev};
 #[allow(unused_imports)]
 use log::*;
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ use std::fs::{metadata, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::mem;
 use std::mem::size_of;
+use std::sync::mpsc::channel;
 use std::sync::{Arc, RwLock};
 
 const LOW64K: usize = 64 * KiB;
@@ -119,15 +121,19 @@ impl BootParams {
     }
 }
 
+// pub fn poke_guest(a: u8, b: u32) {
+//     println!("pock");
+// }
+
 const HEADER_OFFSET: u64 = 0x01f1;
 const HDRS: u32 = 0x53726448;
 const ENTRY_64: usize = 0x200;
 
 pub fn load_linux64(
-    vm: &Arc<RwLock<VirtualMachine>>,
+    vm: &Arc<VirtualMachine>,
     kernel_path: String,
     rd_path: Option<String>,
-    cmd_line: String,
+    mut cmd_line: String,
     mem_size: usize,
 ) -> Result<Vec<GuestThread>, Error> {
     // first we make sure the kernel is not too old
@@ -152,7 +158,7 @@ pub fn load_linux64(
     // setup low memory
     let mut low_mem = MachVMBlock::new(LOW_MEM_SIZE).unwrap();
 
-    let num_gth = { vm.read().unwrap().cores };
+    let num_gth = vm.cores;
     let bios_table_size = setup_bios_tables(num_gth, 0xe0000, &mut low_mem);
     trace!("bios_table_size = {:x}", bios_table_size);
     let mut vapic_block = MachVMBlock::new(num_gth as usize * PAGE_SIZE * 2)?;
@@ -194,13 +200,30 @@ pub fn load_linux64(
         .read_exact(&mut high_mem[0..(kn_meta.len() - kernel_offset) as usize])
         .unwrap();
 
+    // add virtio console
+    let virtio_start: usize = 64 * GiB;
+    for (i, virtio_dev) in vm.virtio_mmio_dev.iter().enumerate() {
+        let dev = virtio_dev.lock().unwrap();
+        let virtio_para = format!(
+            " virtio_mmio.device=1K@0x{:x}:{}:3",
+            virtio_start + i * PAGE_SIZE,
+            dev.irq
+        );
+        cmd_line.push_str(&virtio_para);
+    }
+    // let vqdev = VirtioVqDev::new_console("console".to_string());
+    // let console = VirtioMmioDev::new(virtio_start, irq, vqdev, poke_guest);
     // command line
-    let virtio_start: usize = 0x2000000000;
-    let cmd_line = format!(
-        "{} virtio_mmio.device=1K@0x{:x}:{}:3",
-        cmd_line, virtio_start, 45
-    );
-    warn!("full command line = {}", cmd_line);
+    // let cmd_line = format!(
+    //     "{} virtio_mmio.device=1K@0x{:x}:{}:3",
+    //     cmd_line, virtio_start, irq
+    // );
+    // {
+    //     let mut vm_ = vm.write().unwrap();
+    //     vm_.virtio_mmio_dev.push(console);
+    //     vm_.virtio_base = virtio_start;
+    // }
+    warn!("full command line = {}", &cmd_line);
     let cmd_line_base = high_mem.start + cmd_line_offset;
     &high_mem[cmd_line_offset..(cmd_line_offset + cmd_line.len())]
         .clone_from_slice(cmd_line.as_bytes());
@@ -216,14 +239,21 @@ pub fn load_linux64(
         let rd_meta = metadata(&rd_path)?;
         let mut rd_file = File::open(&rd_path)?;
         rd_size = rd_meta.len() as usize;
+        // let rounded_rd_size = round_up(rd_size);
+        // let rd_offset = first_pdpt_offset - rounded_rd_size;
+        // rd_file.read_exact(&mut high_mem[rd_offset..(rd_offset + rd_size)])?;
+        // bp.hdr.ramdisk_image = (rd_offset & 0xffffffff) as u32;
+        // bp.ext_ramdisk_image = (rd_offset >> 32) as u32;
+
         let mut rd_mem_block = MachVMBlock::new(round_up(rd_size))?;
         rd_file.read_exact(&mut rd_mem_block[0..rd_size])?;
         bp.hdr.ramdisk_image = (RD_ADDR & 0xffffffff) as u32;
         bp.ext_ramdisk_image = (RD_ADDR >> 32) as u32;
-        bp.hdr.ramdisk_size = (rd_size & 0xffffffff) as u32;
-        bp.ext_ramdisk_size = (rd_size >> 32) as u32;
-        bp.hdr.root_dev = 0x100;
+        // bp.hdr.ramdisk_size = (rd_size & 0xffffffff) as u32;
+        // bp.ext_ramdisk_size = (rd_size >> 32) as u32;
+        // bp.hdr.root_dev = 0x100;
         rd_mem = Some(rd_mem_block);
+    // rd_mem = None;
     } else {
         rd_size = 0;
         rd_mem = None;
@@ -317,17 +347,26 @@ pub fn load_linux64(
     // let apic_page = MachVMBlock::new(PAGE_SIZE)?;
     // mem_maps.insert(APIC_GPA, apic_page);
     mem_maps.insert(vapic_block_start, vapic_block);
-    {
-        let mut vm_ = vm.write().unwrap();
-        vm_.map_guest_mem(mem_maps)?;
-    }
-    let mut guest_threads = vec![];
+    vm.map_guest_mem(mem_maps)?;
+    // {
+    //     let mut vm_ = vm.write().unwrap();
+    //     vm_.map_guest_mem(mem_maps)?;
+    // }
+    let mut guest_threads = Vec::with_capacity(num_gth as usize);
+    let mut intr_senders = Vec::with_capacity(num_gth as usize);
     for i in 0..num_gth {
+        let (intr_sender, intr_receiver) = channel();
+        intr_senders.push(intr_sender);
         let mut gth = GuestThread::new(vm, i);
+        gth.intr_receiver = Some(intr_receiver);
+
         gth.vapic_addr = vapic_block_start + i as usize * PAGE_SIZE;
         gth.posted_irq_desc = vapic_block_start + (i + num_gth) as usize * PAGE_SIZE;
         info!("guest thread {} with vapid_addr = {:x}", i, gth.vapic_addr);
         guest_threads.push(gth);
+    }
+    {
+        *vm.intr_senders.lock().unwrap() = Some(intr_senders);
     }
     guest_threads[0].init_regs = init_regs;
     Ok(guest_threads)

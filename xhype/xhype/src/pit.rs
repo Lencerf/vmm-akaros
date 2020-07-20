@@ -57,9 +57,9 @@ pub struct Pit {
 }
 
 const PIT_READ_BACK: u8 = 0b11;
-const PIT_LATCH: u8 = 0b00;
-const PIT_LO: u8 = 0b01;
-const PIT_HI: u8 = 0b10;
+// const PIT_LATCH: u8 = 0b00;
+// const PIT_LO: u8 = 0b01;
+// const PIT_HI: u8 = 0b10;
 const PIT_LO_HI: u8 = 0b11;
 
 pub fn pit_data_handle(
@@ -69,8 +69,7 @@ pub fn pit_data_handle(
     r#in: bool,
 ) -> Result<HandleResult, Error> {
     let channel_num = port - 0x40;
-    let mut vm_ = gth.vm.write().unwrap();
-    let mut channel = &mut vm_.pit.channels[channel_num as usize];
+    let mut channel = &mut gth.vm.pit.write().unwrap().channels[channel_num as usize];
     if r#in {
         // read counter value
         let value = if let Some(latched_value) = channel.latch_value {
@@ -129,8 +128,7 @@ pub fn pit_cmd_handler(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, E
     if channel_num == PIT_READ_BACK {
         return Err((VMX_REASON_IO, "read back mode not supported"))?;
     }
-    let mut vm_ = gth.vm.write().unwrap();
-    let mut channel = &mut vm_.pit.channels[channel_num as usize];
+    let mut channel = &mut gth.vm.pit.write().unwrap().channels[channel_num as usize];
     channel.access_mode = access_mode;
     channel.op_mode = op_mode;
     if op_mode != 0 && op_mode != 2 {

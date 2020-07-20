@@ -1,7 +1,74 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
-use crate::{Error, GuestThread};
+use crate::{Error, GuestThread, VCPU};
+use bitfield::bitfield;
 #[allow(unused_imports)]
 use log::*;
+
+// bitfield! {
+//     struct IoApicEntry(u64);
+//     u64;
+//     vector, _: 0,7;
+//     delivery_mode, _: 8,10;
+//     destination_mode, _: 11, 11;
+//     delivery_status, _: 12, 12;
+//     pin_priority, _: 13, 13;
+//     remote_irr, _: 14, 14;
+//     trigger_mode, _: 15,15;
+//     mask,_:16,16;
+//     destination, _: 56,63;
+// }
+
+// fn tb_vector(reg: u64) -> u8 {
+//     (reg & 0xff) as u8
+// }
+
+// fn delivery_mode(reg: u64) -> u8 {
+//     ((reg >> 8) & 0b111) as u8
+// }
+
+// fn destination_mode(reg: u64) -> &'static str {
+//     if (reg >> 11) & 1 == 1 {
+//         "logical"
+//     } else {
+//         "physical"
+//     }
+// }
+
+// fn delivery_status(reg: u64) -> &'static str {
+//     if (reg >> 12) & 1 == 1 {
+//         "sent"
+//     } else {
+//         "pending"
+//     }
+// }
+
+// fn pin_priority(reg: u64) -> &'static str {
+//     if (reg >> 13) & 1 == 1 {
+//         "low"
+//     } else {
+//         "high"
+//     }
+// }
+
+// fn irr(reg: u64) -> u8 {
+//     ((reg >> 14) & 1) as u8
+// }
+
+// fn trigger_mode(reg: u64) -> &'static str {
+//     if (reg >> 15) & 1 == 1 {
+//         "level"
+//     } else {
+//         "edge"
+//     }
+// }
+
+// fn mask(reg: u64) -> bool {
+//     (reg >> 16) & 1 == 1
+// }
+
+// fn destination(reg: u64) -> u8 {
+//     (reg >> 56 & 0xf) as u8
+// }
 
 const IOAPIC_NUM_PINS: u32 = 24;
 
@@ -9,7 +76,7 @@ pub struct IoApic {
     id: u32,
     reg: u32,
     arbid: u32,
-    value: [u32; 256],
+    pub value: [u32; 256],
 }
 
 impl IoApic {
@@ -24,29 +91,42 @@ impl IoApic {
 }
 
 fn ioapic_write(gth: &GuestThread, offset: usize, value: u32) {
-    let arc_ioapic = { gth.vm.read().unwrap().ioapic.clone() };
-    let mut ioapic = arc_ioapic.write().unwrap();
+    let mut ioapic = gth.vm.ioapic.write().unwrap();
     if offset == 0 {
-        info!("ioapic_write set reg {:x}", value);
+        warn!("ioapic_write set reg {:x}", value);
         ioapic.reg = value;
     } else {
         match ioapic.reg {
             0 => ioapic.id = value,
             1 | 2 => unimplemented!(),
             reg => {
-                warn!(
+                ioapic.value[reg as usize - 0x10] = value;
+                println!(
                     "OS write {:x} to {:x}, need to change virtio device irqs",
-                    value, reg
+                    ioapic.value[reg as usize - 0x10],
+                    reg
                 );
-                ioapic.value[reg as usize] = value;
+                // println!("{:?}", &ioapic.value[0..32])
+                // let full = if reg % 2 == 0 {
+                //     ioapic.value[reg as usize - 0x10] as u64
+                //         | ((ioapic.value[reg as usize + 1 - 0x10] as u64) << 32)
+                // } else {
+                //     ioapic.value[reg as usize - 0x10 - 1] as u64
+                //         | ((ioapic.value[reg as usize - 0x10] as u64) << 32)
+                // };
+                // if reg % 2 == 0 {
+                //     let irq = reg - 0x10;
+                //     let vm = gth.vm.write().unwrap();
+                //     vm.virtio_mmio_dev[irq as usize].vec
+                // }
+                // println!("vec = {:x}, delivery_mode={}, dest_mode = {}, dev_status = {}, priority = {}, irr = {}, mode = {}, maks = {}, dest = {}", tb_vector(full), delivery_mode(full), destination_mode(full), delivery_status(full), pin_priority(full), irr(full), trigger_mode(full), mask(full), destination(full));
             }
         }
     }
 }
 
 fn ioapic_read(gth: &GuestThread, offset: usize) -> u32 {
-    let arc_ioapic = { gth.vm.read().unwrap().ioapic.clone() };
-    let ioapic = arc_ioapic.read().unwrap();
+    let ioapic = gth.vm.ioapic.read().unwrap();
     let reg = ioapic.reg;
     if offset == 0 {
         reg
@@ -57,19 +137,20 @@ fn ioapic_read(gth: &GuestThread, offset: usize) -> u32 {
             2 => ioapic.arbid,
             _ => {
                 if reg < (IOAPIC_NUM_PINS * 2 + 0x10) {
-                    ioapic.value[reg as usize]
+                    ioapic.value[reg as usize - 0x10]
                 } else {
                     warn!("IO APIC read bad reg {:x}", reg);
                     0xffffffff
                 }
             }
         };
-        info!("IO APIC read reg {:x} return {:x}", reg, ret);
+        warn!("IO APIC read reg {:x} return {:x}", reg, ret);
         ret
     }
 }
 
 pub fn ioapic_access(
+    _vcpu: &VCPU,
     gth: &mut GuestThread,
     gpa: usize,
     reg_val: &mut u64,

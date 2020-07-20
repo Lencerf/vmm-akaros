@@ -16,11 +16,7 @@ pub struct VThread {
 }
 
 impl VThread {
-    fn new(
-        vm: &Arc<RwLock<VirtualMachine>>,
-        stack_size: usize,
-        entry: usize,
-    ) -> Result<Self, Error> {
+    fn new(vm: &Arc<VirtualMachine>, stack_size: usize, entry: usize) -> Result<Self, Error> {
         let mut vthread_stack = MachVMBlock::new(stack_size)?;
         let stack_top = vthread_stack.start + vthread_stack.size - size_of::<usize>();
         vthread_stack.write(hlt as usize, stack_top - vthread_stack.start, 0);
@@ -42,10 +38,7 @@ impl VThread {
         let mem_maps = vec![(vthread_stack.start, vthread_stack), (paging.start, paging)]
             .into_iter()
             .collect();
-        {
-            let mut vm = vm.write().unwrap();
-            vm.map_guest_mem(mem_maps)?;
-        }
+        vm.map_guest_mem(mem_maps)?;
         let mut gth = GuestThread::new(vm, 0);
         gth.init_regs = init_regs;
         Ok(VThread { gth })
@@ -58,11 +51,11 @@ const PAGING_SIZE: usize = 2 * PAGE_SIZE;
 pub struct Builder {
     name: Option<String>,
     stack_size: Option<usize>,
-    vm: Arc<RwLock<VirtualMachine>>,
+    vm: Arc<VirtualMachine>,
 }
 
 impl Builder {
-    pub fn new(vm: &Arc<RwLock<VirtualMachine>>) -> Self {
+    pub fn new(vm: &Arc<VirtualMachine>) -> Self {
         Builder {
             name: None,
             stack_size: None,
@@ -140,7 +133,7 @@ mod tests {
     #[test]
     fn vthread_test() {
         let vmm = VMManager::new().unwrap();
-        let vm = Arc::new(RwLock::new(vmm.create_vm(1).unwrap()));
+        let vm = Arc::new(vmm.create_vm(1).unwrap());
         let mut vth = VThread::new(&vm, 4096, add_a as usize).unwrap();
         let vcpu = VCPU::create().unwrap();
         vth.gth.run_on(&vcpu).unwrap();

@@ -3,6 +3,7 @@ use crate::err::Error;
 use crate::hv::vmx::*;
 use crate::hv::X86Reg;
 use crate::mach::MachVMBlock;
+use crate::print_stack;
 use crate::utils::{get_tsc_frequency, mach_abs_time_ns};
 use crate::x86::*;
 use crate::{GuestThread, VCPU};
@@ -15,34 +16,34 @@ const OFFSET_TPR: usize = 0x80;
 const OFFSET_APR: usize = 0x90;
 const OFFSET_PPR: usize = 0xa0;
 const OFFSET_EOI: usize = 0xb0;
-const OFFSET_RRD: usize = 0xc0; // Remote Read Register?
+// const OFFSET_RRD: usize = 0xc0; // Remote Read Register?
 const OFFSET_LDR: usize = 0xd0; //Logical Destination Register (LDR)
 const OFFSET_DFR: usize = 0xe0; // Destination Format Register, xapic only
 const OFFSET_SVR: usize = 0xf0;
 const OFFSET_ISR0: usize = 0x100;
-const OFFSET_ISR32: usize = 0x110;
-const OFFSET_ISR64: usize = 0x120;
-const OFFSET_ISR96: usize = 0x130;
-const OFFSET_ISR128: usize = 0x140;
-const OFFSET_ISR160: usize = 0x150;
-const OFFSET_ISR192: usize = 0x160;
-const OFFSET_ISR224: usize = 0x170;
+// const OFFSET_ISR32: usize = 0x110;
+// const OFFSET_ISR64: usize = 0x120;
+// const OFFSET_ISR96: usize = 0x130;
+// const OFFSET_ISR128: usize = 0x140;
+// const OFFSET_ISR160: usize = 0x150;
+// const OFFSET_ISR192: usize = 0x160;
+// const OFFSET_ISR224: usize = 0x170;
 const OFFSET_TMR0: usize = 0x180;
-const OFFSET_TMR32: usize = 0x190;
-const OFFSET_TMR64: usize = 0x1a0;
-const OFFSET_TMR96: usize = 0x1b0;
-const OFFSET_TMR128: usize = 0x1c0;
-const OFFSET_TMR160: usize = 0x1d0;
-const OFFSET_TMR192: usize = 0x1e0;
-const OFFSET_TMR224: usize = 0x1f0;
+// const OFFSET_TMR32: usize = 0x190;
+// const OFFSET_TMR64: usize = 0x1a0;
+// const OFFSET_TMR96: usize = 0x1b0;
+// const OFFSET_TMR128: usize = 0x1c0;
+// const OFFSET_TMR160: usize = 0x1d0;
+// const OFFSET_TMR192: usize = 0x1e0;
+// const OFFSET_TMR224: usize = 0x1f0;
 const OFFSET_IRR0: usize = 0x200;
-const OFFSET_IRR32: usize = 0x210;
-const OFFSET_IRR64: usize = 0x220;
-const OFFSET_IRR96: usize = 0x230;
-const OFFSET_IRR128: usize = 0x240;
-const OFFSET_IRR160: usize = 0x250;
-const OFFSET_IRR192: usize = 0x260;
-const OFFSET_IRR224: usize = 0x270;
+// const OFFSET_IRR32: usize = 0x210;
+// const OFFSET_IRR64: usize = 0x220;
+// const OFFSET_IRR96: usize = 0x230;
+// const OFFSET_IRR128: usize = 0x240;
+// const OFFSET_IRR160: usize = 0x250;
+// const OFFSET_IRR192: usize = 0x260;
+// const OFFSET_IRR224: usize = 0x270;
 const OFFSET_ESR: usize = 0x280;
 const OFFSET_LVT_CMCI: usize = 0x2f0;
 const OFFSET_ICR0: usize = 0x300; // inter-processor interrupt
@@ -57,7 +58,7 @@ const OFFSET_INIT_COUNT: usize = 0x380;
 const OFFSET_CURR_COUNT: usize = 0x390;
 const OFFSET_DCR: usize = 0x3e0; //Divide Configuration Register
 const OFFSET_SELF_IPI: usize = 0x3f0; // x2apic only
-const BIT_SVR_ENABLE: u32 = 1 << 8;
+                                      // const BIT_SVR_ENABLE: u32 = 1 << 8;
 
 const APIC_VER: u32 = 0x10;
 
@@ -65,7 +66,7 @@ const BIT_LVT_MASKED: u32 = 0x10000;
 const TIMER_ONE_SHOT: u32 = 0b00;
 const TIMER_PERIODIC: u32 = 0b01;
 const TIMER_TCS_DDL: u32 = 0b10;
-const BIT_LVT_NOT_ACCEPTED: u32 = 1 << 12;
+// const BIT_LVT_NOT_ACCEPTED: u32 = 1 << 12;
 
 fn lvt_masked(lvt: u32) -> bool {
     lvt & BIT_LVT_MASKED > 0
@@ -141,7 +142,7 @@ impl Apic {
     }
 
     pub fn x2mode(&self) -> bool {
-        self.id & (1 << 10) > 0
+        self.msr_apic_base & (1 << 10) > 0
     }
 
     fn clear_irr(&mut self, vector: u8) {
@@ -161,7 +162,9 @@ impl Apic {
             info!("vector {} discarded", vector);
         }
         self.apic_page.write(irr | vector_bit, offset_irr, 0);
-        info!("set irr, {}", vector);
+        if vector != 236 {
+            warn!("set irr, {}", vector);
+        }
     }
 
     fn clear_isr(&mut self, vector: u8) {
@@ -267,7 +270,11 @@ impl Apic {
         self.update_timer_period();
     }
 
-    pub fn fire_timer_interrupt(&mut self, vcpu: &VCPU) {
+    pub fn fire_externel_interrupt(&mut self, vector: u8) {
+        self.set_irr(vector);
+    }
+
+    pub fn fire_timer_interrupt(&mut self, _vcpu: &VCPU) {
         let timer_lvt: u32 = self.apic_page.read(OFFSET_LVT_TIMER, 0);
         let vector = lvt_vec(timer_lvt);
         debug_assert_eq!(lvt_masked(timer_lvt), false);
@@ -283,18 +290,27 @@ impl Apic {
 
     // 10.8.3.1 Task and Processor Priorities
     fn update_ppr(&mut self) {
-        let tpr: u8 = self.apic_page.read(OFFSET_PPR, 0);
+        let tpr: u8 = self.apic_page.read(OFFSET_TPR, 0);
         let isrv = *self.isr_vec.last().unwrap_or(&0);
         let ppr = if priority(tpr) >= priority(isrv) {
             tpr
         } else {
             isrv & 0xf0
         };
-        self.apic_page.write(isrv, OFFSET_PPR, 0);
+        self.apic_page.write(ppr, OFFSET_PPR, 0);
     }
 
     // 10.8.4 Interrupt Acceptance for Fixed Interrupts
-    fn get_intr_from_irr(&self) -> Option<u8> {
+    fn get_intr_from_irr(&self) -> Result<u8, String> {
+        // let fired_32 = unsafe { injected32 };
+        // if fired_32 {
+        //     println!("get inter from irr, fired_32 = {}", fired_32);
+        //     for i in (0..8).rev() {
+        //         let offset = OFFSET_IRR0 + i * 0x10;
+        //         let irr: u32 = self.apic_page.read(offset, 0);
+        //         println!("i = {}, irr = {:b}", i, irr);
+        //     }
+        // }
         let ppr = self.apic_page.read::<u8>(OFFSET_PPR, 0);
         for i in (0..8).rev() {
             let offset = OFFSET_IRR0 + i * 0x10;
@@ -302,18 +318,26 @@ impl Apic {
             if irr != 0 {
                 let vector = i as u8 * 32 + (31 - irr.leading_zeros() as u8);
                 if priority(vector) > priority(ppr) {
-                    return Some(vector);
+                    return Ok(vector);
                 } else {
-                    info!(
-                        "find vector = {:x}, ppr = {:x} first interrupt priority is too small",
-                        vector, ppr
-                    );
-                    break;
+                    if vector != 236 {
+                        warn!(
+                            "find vector = {:x}, ppr = {:x} first interrupt priority is too small",
+                            vector, ppr
+                        );
+                    }
+                    return Err(format!(
+                        "vector = {}, priotity = {}, ppr= {}, ppr_p ={}",
+                        vector,
+                        priority(vector),
+                        ppr,
+                        priority(ppr)
+                    ));
                 }
             }
         }
         // warn!("find no interrupt");
-        None
+        Err("really no vector".into())
     }
 
     fn mark_intr_in_service(&mut self, vector: u8) {
@@ -327,13 +351,15 @@ impl Apic {
         self.update_ppr();
     }
 
-    pub fn has_pending_interrupt(&self) -> bool {
-        !self.get_intr_from_irr().is_none()
-    }
+    // pub fn has_pending_interrupt(&self) -> bool {
+    //     !self.get_intr_from_irr().is_none()
+    // }
 
-    pub fn inject_interrupt(&mut self, vcpu: &VCPU) -> Result<(), Error> {
+    pub fn inject_interrupt(&mut self, vcpu: &VCPU) -> Result<String, Error> {
+        let result;
         let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
-        if let Some(vector) = self.get_intr_from_irr() {
+        let irr_result = self.get_intr_from_irr();
+        if let Ok(vector) = irr_result {
             let rflags = vcpu.read_reg(X86Reg::RFLAGS)?;
             if rflags & FL_IF == FL_IF {
                 let blocking = vcpu.read_vmcs(VMCS_GUEST_IGNORE_IRQ)?;
@@ -343,36 +369,60 @@ impl Apic {
                         let entry_info = (1 << 31) | vector as u64;
                         vcpu.write_vmcs(VMCS_CTRL_VMENTRY_IRQ_INFO, entry_info)?;
                         self.mark_intr_in_service(vector);
-                        info!("injected interrupt {}", vector);
-                        return Ok(());
+                        // error!("injected interrupt {}", vector);
+                        return Ok(format!("vector {} injected", vector));
                     } else {
-                        info!(
+                        if vector != 236 {
+                            info!(
+                                "vmentry info irq valid, cannot inject {}, exitreason = {}",
+                                vector, reason
+                            );
+                        }
+                        result = Ok(format!(
                             "vmentry info irq valid, cannot inject {}, exitreason = {}",
+                            vector, reason
+                        ));
+                    }
+                } else {
+                    if vector != 236 {
+                        info!(
+                            "cannot inject interrupt {}, sti/movss blocking, reason = {}",
                             vector, reason
                         );
                     }
-                } else {
-                    error!(
+                    result = Ok(format!(
                         "cannot inject interrupt {}, sti/movss blocking, reason = {}",
+                        vector, reason
+                    ));
+                }
+            } else {
+                if vector != 236 {
+                    info!(
+                        "cannot inject interrupt, rflag & FL_IP = 0, cannot inject {}, reason = {}",
                         vector, reason
                     );
                 }
-            } else {
-                info!(
+                result = Ok(format!(
                     "cannot inject interrupt, rflag & FL_IP = 0, cannot inject {}, reason = {}",
                     vector, reason
-                );
+                ));
             }
             let mut ctrl_cpu = vcpu.read_vmcs(VMCS_CTRL_CPU_BASED)?;
             ctrl_cpu |= CPU_BASED_IRQ_WND;
             vcpu.write_vmcs(VMCS_CTRL_CPU_BASED, ctrl_cpu)?;
+        // warn!("interrupt window set");
         } else {
             let timer_lvt: u32 = self.apic_page.read(OFFSET_LVT_TIMER, 0);
             if !lvt_masked(timer_lvt) {
                 info!("no vector");
             }
+            result = Ok(format!(
+                "find no vector, reason = {}, rflag = {}",
+                irr_result.unwrap_err(),
+                vcpu.read_reg(X86Reg::RFLAGS)? & FL_IF == FL_IF
+            ));
         }
-        Ok(())
+        result
     }
 
     pub fn write(&mut self, offset: usize, mut value: u64) -> Result<(), Error> {
@@ -386,7 +436,9 @@ impl Apic {
                     error!("id is read only in x2 mode");
                     unimplemented!()
                 } else {
-                    warn!("ignore changing apic id to {:x}", value);
+                    if value as u32 != self.apic_page.read(OFFSET_ID, 0) {
+                        warn!("ignore changing apic id to {:x}", value);
+                    }
                 }
             }
             OFFSET_TPR => {
@@ -422,7 +474,7 @@ impl Apic {
                     unimplemented!()
                 } else {
                     self.apic_page.write(value as u32, OFFSET_DFR, 0);
-                    info!("OS write {:x} to LDR", value);
+                    info!("OS write {:x} to DFR", value);
                 }
             }
             OFFSET_SVR => {
@@ -513,7 +565,7 @@ impl Apic {
 
     //10.4.7.1 Local APIC State After Power-Up or Reset
     pub fn reset(&mut self) {
-        self.apic_page.write(self.id as u32, OFFSET_ID, 0);
+        self.apic_page.write((self.id as u32) << 24, OFFSET_ID, 0);
         self.apic_page
             .write(APIC_VER | (6 << 16) as u32, OFFSET_VER, 0);
         // Figure 10-18. Task-Priority Register (TPR)
@@ -561,6 +613,7 @@ impl Apic {
 }
 
 pub fn apic_access(
+    _vcpu: &VCPU,
     gth: &mut GuestThread,
     gpa: usize,
     reg_val: &mut u64,

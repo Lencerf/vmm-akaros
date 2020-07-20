@@ -8,6 +8,7 @@ use super::hv::vmx::*;
 use super::x86::*;
 use super::{Error, GuestThread, X86Reg, VCPU};
 use crate::apic::apic_access;
+use crate::consts::*;
 use crate::cpuid::do_cpuid;
 use crate::decode::emulate_mem_insn;
 #[allow(unused_imports)]
@@ -16,6 +17,7 @@ use crate::ioapic::ioapic_access;
 use crate::pit::{pit_cmd_handler, pit_data_handle};
 use crate::print_stack;
 use crate::utils::{get_bus_frequency, get_tsc_frequency};
+use crate::virtio::virtio_mmio;
 use log::{error, info, trace, warn};
 use std::mem::size_of;
 
@@ -50,8 +52,13 @@ pub fn make_vm_entry_intr_info(
 // the host's memory. There should be better ways to implement this.
 pub fn read_host_mem<T>(base: u64, index: u64) -> T {
     // println!("read from base = {:x}, index = {}", base, index);
-    let ptr = (base + index * size_of::<T>() as u64) as *const T;
+    let ptr = ((base + index * size_of::<T>() as u64) & ADDR_MASK) as *const T;
     unsafe { ptr.read() }
+}
+
+pub fn write_host_mem<T>(base: u64, index: u64, value: T) {
+    let ptr = ((base + index * size_of::<T>() as u64) & ADDR_MASK) as *mut T;
+    unsafe { ptr.write(value) }
 }
 
 fn pt_index(addr: u64) -> u64 {
@@ -507,7 +514,7 @@ fn set_all_zero(rax: u64, size: u64) -> u64 {
 }
 
 fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
-    let cf8 = { gth.vm.read().unwrap().cf8 };
+    let cf8 = *gth.vm.cf8.read().unwrap();
     let rax = vcpu.read_reg(X86Reg::RAX)?;
     let size = io_size(qual);
     let port = io_port(qual);
@@ -527,10 +534,9 @@ fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<Hand
         if bdf == 0 {
             // only host bridge is supported
             if io_in(qual) {
-                warn!("read host bridge data offset: {:x}", offset);
                 let mut v = {
                     let reg = offset as usize >> 2;
-                    let data = gth.vm.read().unwrap().host_bridge_data;
+                    let data = &gth.vm.host_bridge_data.read().unwrap();
                     if reg < data.len() {
                         data[reg]
                     } else {
@@ -542,11 +548,11 @@ fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<Hand
                 } else if size == 2 {
                     v >>= ((port & 2) >> 1) * 16;
                 }
-                info!(
-                    "return size = {}, value = 0x{:0width$x} from port = {:x}",
+                error!(
+                    "return hostbridge size = {}, value = 0x{:0width$x} from offset = {:x}",
                     size,
                     v,
-                    port,
+                    offset,
                     width = size as usize * 2
                 );
                 vcpu.write_reg(X86Reg::RAX, set_all_zero(rax, size) | v as u64)?;
@@ -554,20 +560,23 @@ fn cfg_address_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<Hand
                 if size == 4 {
                     let reg = offset as usize >> 2;
                     let value = (rax & 0xffffffff) as u32;
-                    let mut data = gth.vm.write().unwrap().host_bridge_data;
+                    let data = &mut gth.vm.host_bridge_data.write().unwrap();
                     if reg < data.len() {
                         data[reg] = value;
                     } else {
                         error!(
-                            "write data {:x} to port={:x}, offset={:x}",
+                            "write hostbridge data {:x} to port={:x}, offset={:x}",
                             rax, port, offset
                         );
                     }
                 } else {
                     error!(
-                        "write data {:x} to port={:x}, offset={:x}",
+                        "write non 4-byte hostbridge data {:x} to port={:x}, offset={:x}",
                         rax, port, offset
                     );
+
+                    print_stack(vcpu, 10);
+                    // panic!();
                 }
             }
         } else {
@@ -617,7 +626,7 @@ fn cf8_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult
         }
     }
     if io_in(qual) {
-        let cf8_value = gth.vm.read().unwrap().cf8;
+        let cf8_value = *gth.vm.cf8.read().unwrap();
         vcpu.write_reg(X86Reg::RAX, set_all_zero(rax, size) | cf8_value as u64)?;
     } else {
         if cf8_bdf(rax as u32) == 0 {
@@ -627,7 +636,7 @@ fn cf8_handler(qual: u64, vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult
                 cf8_offset(rax as u32)
             );
         }
-        gth.vm.write().unwrap().cf8 = rax as u32;
+        *gth.vm.cf8.write().unwrap() = rax as u32;
     }
     Ok(HandleResult::Next)
 }
@@ -640,11 +649,13 @@ pub fn unknown_port_handler(
     let rax = vcpu.read_reg(X86Reg::RAX)?;
     let port = io_port(qual);
     if io_in(qual) {
-        error!(
-            "read from io port = {:x}, size = {}, return 0xff",
-            port,
-            io_size(qual)
-        );
+        if port != 0x60 && port != 0x64 {
+            error!(
+                "read from io port = {:x}, size = {}, return 0xff",
+                port,
+                io_size(qual)
+            );
+        }
         vcpu.write_reg(X86Reg::RAX, set_all_one(rax, io_size(qual)))?;
     } else {
         error!(
@@ -688,14 +699,14 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
             if io_in(qual) {
                 unimplemented!()
             } else {
-                gth.vm.write().unwrap().rtc.reg = rax as u8;
+                gth.vm.rtc.write().unwrap().reg = rax as u8;
                 info!("set CMOS reg to {:x}", rax);
             }
             Ok(HandleResult::Next)
         }
         RTC_PORT_DATA => {
             if io_in(qual) {
-                let v = { gth.vm.read().unwrap().rtc.read(RTC_PORT_DATA) };
+                let v = gth.vm.rtc.read().unwrap().read(RTC_PORT_DATA);
                 info!("return 0x{:x} to port {:x}", v, RTC_PORT_DATA);
                 // unimplemented!();
                 vcpu.write_reg(X86Reg::RAX, set_all_zero(rax, io_size(qual)) | v as u64)?;
@@ -726,26 +737,25 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
         }
         COM1_BASE..=COM1_MAX => {
             if io_in(qual) {
-                let mut vm = gth.vm.write().unwrap();
-                let v = vm.com1.read(port - COM1_BASE);
-                if v == 0xff {
-                    print_stack(vcpu, 10);
-                }
+                let v = gth.vm.com1.write().unwrap().read(port - COM1_BASE);
+                // if v == 0xff {
+                //     print_stack(vcpu, 10);
+                // }
                 vcpu.write_reg(X86Reg::RAX, v as u64)?;
             } else {
-                let mut vm = gth.vm.write().unwrap();
-                vm.com1.write(port - COM1_BASE, (rax & 0xff) as u8);
+                let v = (rax & 0xff) as u8;
+                gth.vm.com1.write().unwrap().write(port - COM1_BASE, v);
             }
             Ok(HandleResult::Next)
         }
         COM2_BASE..=COM2_MAX => {
             if io_in(qual) {
-                let mut vm = gth.vm.write().unwrap();
-                let v = vm.com2.read(port - 0x2f8);
+                // let mut vm = gth.vm.write().unwrap();
+                let v = gth.vm.com2.write().unwrap().read(port - 0x2f8);
                 vcpu.write_reg(X86Reg::RAX, v as u64)?;
             } else {
-                let mut vm = gth.vm.write().unwrap();
-                vm.com2.write(port - 0x2f8, (rax & 0xff) as u8);
+                let v = (rax & 0xff) as u8;
+                gth.vm.com2.write().unwrap().write(port - 0x2f8, v);
             }
             Ok(HandleResult::Next)
         }
@@ -857,16 +867,18 @@ pub fn default_vmcall_handler(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleR
                 print_num(vmcall_args, format);
             }
         }
-        4 => {
-            crate::print_stack(vcpu, 3);
-        }
+        // 4 => {
+        //     vcpu.dump()?;
+        //     crate::print_stack(vcpu, 10);
+        //     // panic!();
+        // }
         _ => {}
     };
     Ok(HandleResult::Next)
 }
 
 pub fn handle_vmcall(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> {
-    let handler = { gth.vm.read().unwrap().vmcall_hander };
+    let handler = gth.vm.vmcall_hander;
     handler(vcpu, gth)
 }
 
@@ -912,7 +924,7 @@ pub fn handle_ept_violation(
     if gpa >= IO_APIC_BASE && gpa < IO_APIC_BASE + PAGE_SIZE {
         let insn = get_vmexit_instr(vcpu)?;
         emulate_mem_insn(vcpu, gth, &insn, ioapic_access, gpa)?;
-        Ok(HandleResult::Next)
+        return Ok(HandleResult::Next);
     } else if gpa >= APIC_GPA && gpa < APIC_GPA + PAGE_SIZE {
         let insn = get_vmexit_instr(vcpu)?;
         let r = emulate_mem_insn(vcpu, gth, &insn, apic_access, gpa);
@@ -920,10 +932,24 @@ pub fn handle_ept_violation(
             vcpu.dump()?;
             return Err(r.unwrap_err());
         }
-        Ok(HandleResult::Next)
+        return Ok(HandleResult::Next);
     } else {
-        Ok(HandleResult::Resume)
+        let virtio_start: usize = 64 * GiB;
+        if gpa >= virtio_start && gpa - virtio_start < PAGE_SIZE * gth.vm.virtio_mmio_dev.len() {
+            let insn = get_vmexit_instr(vcpu)?;
+            let r = emulate_mem_insn(vcpu, gth, &insn, virtio_mmio, gpa);
+            // if gpa == 0x1000000070 {
+            //     print_stack(vcpu, 10);
+            // }
+            if r.is_err() {
+                vcpu.dump()?;
+                return Err(r.unwrap_err());
+            }
+            return Ok(HandleResult::Next);
+        }
     }
+
+    Ok(HandleResult::Resume)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -937,7 +963,7 @@ pub fn handle_xsetbv(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Err
             "only xcr0 is supported",
         ))
     } else {
-        let host_xcr0 = { gth.vm.read().unwrap().x86_host_xcr0 };
+        let host_xcr0 = gth.vm.x86_host_xcr0;
         let xcr_val =
             (vcpu.read_reg(X86Reg::RDX)? << 32) | (vcpu.read_reg(X86Reg::RAX)? & 0xffffffff);
         if xcr_val & !host_xcr0 != 0 {
@@ -999,7 +1025,7 @@ const CPUID_ARAT: u32 = 1 << 2;
 const CPUID_ACPI: u32 = 1 << 22;
 const CPUID_TM: u32 = 1 << 29;
 const CPUID_DS: u32 = 1 << 21;
-const CPUID_HTT: u32 = 1 << 28;
+// const CPUID_HTT: u32 = 1 << 28;
 
 const THREADS_PER_CORE: u32 = 1;
 
@@ -1048,7 +1074,7 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
         0x1 => {
             /* Set the guest thread id into the apic ID field in CPUID. */
             ebx &= 0x0000ffff;
-            ebx |= { gth.vm.read().unwrap().cores & 0xff } << 16;
+            ebx |= (gth.vm.cores & 0xff) << 16;
             ebx |= (gth.id & 0xff) << 24;
 
             /* Set the hypervisor bit to let the guest know it is
@@ -1084,7 +1110,7 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
         }
         0x4 => {
             if eax > 0 || ebx > 0 || ecx > 0 || edx > 0 {
-                let cores = { gth.vm.read().unwrap().cores };
+                let cores = gth.vm.cores;
                 eax &= 0x3ff;
                 eax |= (cores - 1) << 26;
                 let level = (eax >> 5) & 0x7;
@@ -1112,7 +1138,7 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
                 ebx = CPUID_STDEXT_FSGSBASE
                     | CPUID_STDEXT_BMI1
                     | CPUID_STDEXT_HLE
-                    // | CPUID_STDEXT_AVX2
+                    | CPUID_STDEXT_AVX2
                     | CPUID_STDEXT_BMI2
                     | CPUID_STDEXT_ERMS
                     | CPUID_STDEXT_RTM
@@ -1141,7 +1167,7 @@ pub fn handle_cpuid(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Erro
                 level = 1; //SMT, Vol2, Table 3-8. Information Returned by CPUID Instruction (Contd.)
                 x2paic_id = gth.id;
             } else if ecx_in == 1 {
-                logical_cpus = THREADS_PER_CORE * { gth.vm.read().unwrap().cores };
+                logical_cpus = THREADS_PER_CORE * gth.vm.cores;
                 width = log2(logical_cpus);
                 level = 2; // Core
                 x2paic_id = gth.id;

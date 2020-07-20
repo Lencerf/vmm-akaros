@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 #![allow(unused_imports)]
-#![allow(dead_code)]
-#![allow(unused_variables)]
+// #![allow(dead_code)]
+// #![allow(unused_variables)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(feature = "vthread_closure", feature(fn_traits))]
 mod apic;
@@ -32,6 +32,7 @@ mod vmexit;
 pub mod vthread;
 #[allow(dead_code)]
 mod x86;
+use crate::consts::*;
 use crate::rtc::Rtc;
 use apic::Apic;
 #[allow(unused_imports)]
@@ -53,18 +54,24 @@ use serial::Serial;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::{Arc, RwLock};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex, RwLock};
+use virtio::{VirtioId, VirtioMmioDev, VirtioVqDev};
 use vmexit::*;
 use x86::*;
 
 fn print_stack_inner(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
     let rip = vcpu.read_reg(X86Reg::RIP)?;
-    warn!("current rip = {:x}", rip);
+    warn!(
+        "current rip = {:x}, rbp = {:x}",
+        rip,
+        vcpu.read_reg(X86Reg::RBP)?
+    );
     let mut rbp = vcpu.read_reg(X86Reg::RBP)?;
     for i in 0..depth {
         let rbp_physical = simulate_paging(vcpu, rbp)?;
         let return_address_physical = simulate_paging(vcpu, rbp + 8)?;
-        warn!(
+        error!(
             "i = {}, rbp = {:x}, rip = {:x}",
             i,
             rbp,
@@ -119,83 +126,137 @@ impl Drop for VMManager {
 ////////////////////////////////////////////////////////////////////////////////
 // VirtualMachine
 ////////////////////////////////////////////////////////////////////////////////
-
+// pub fn poke_guest(a: u8, b: u32) {
+//     println!("pock");
+// }
 /// A VirtualMachine is the physical hardware seen by a guest, including physical
 /// memory, number of cpu cores, etc.
 pub struct VirtualMachine {
-    mem_space: MemSpace,
+    mem_space: RwLock<MemSpace>,
     cores: u32,
     // fixme: add lock to pci ports?
-    pub(crate) cf8: u32,
-    pub(crate) host_bridge_data: [u32; 16],
+    pub(crate) cf8: RwLock<u32>,
+    pub(crate) host_bridge_data: RwLock<[u32; 16]>,
     pub(crate) ioapic: Arc<RwLock<IoApic>>,
+    pub(crate) vcpu_ids: Arc<RwLock<Vec<u32>>>,
     /// the memory that is specifically allocated for the guest. For a vthread,
     /// it contains its stack and a paging structure. For a kernel, it contains
     /// its bios tables, APIC pages, high memory, etc.
     /// guest virtual address -> host VM block
-    pub(crate) guest_mmap: HashMap<usize, MachVMBlock>,
+    pub(crate) guest_mmap: RwLock<HashMap<usize, MachVMBlock>>,
     pub vmcall_hander: fn(&VCPU, &GuestThread) -> Result<HandleResult, Error>,
     x86_host_xcr0: u64,
-    pub(crate) rtc: Rtc,
-    pub(crate) pit: Pit,
-    pub(crate) com1: Serial,
-    pub(crate) com2: Serial,
+    pub(crate) rtc: RwLock<Rtc>,
+    pub(crate) pit: RwLock<Pit>,
+    pub(crate) com1: RwLock<Serial>,
+    pub(crate) com2: RwLock<Serial>,
+    pub(crate) virtio_mmio_dev: Vec<Mutex<VirtioMmioDev>>,
+    pub(crate) intr_senders: Arc<Mutex<Option<Vec<Sender<u8>>>>>,
 }
 
 impl VirtualMachine {
     // make it private to force user to create a vm by calling create_vm to make
     // sure that hv_vm_create() is called before hv_vm_space_create() is called
+
+    fn ioapic_loop(
+        intr_senders: Arc<Mutex<Option<Vec<Sender<u8>>>>>,
+        irq_receiver: Receiver<u32>,
+        ioapic: Arc<RwLock<IoApic>>,
+        vcpu_ids: Arc<RwLock<Vec<u32>>>,
+    ) {
+        loop {
+            let irq = irq_receiver.recv().unwrap();
+            let ioapic = ioapic.read().unwrap();
+            let vcpu_ids = vcpu_ids.read().unwrap();
+            let entry = ioapic.value[2 * irq as usize] as u64
+                | ((ioapic.value[2 * irq as usize + 1] as u64) << 32);
+            let senders = intr_senders.lock().unwrap();
+            if let Some(ref some_senders) = *senders {
+                some_senders[0].send((entry & 0xff) as u8).unwrap();
+                interrupt_vcpu(&vcpu_ids[0..1]).unwrap();
+            }
+            // println!("get irq = {}", irq);
+            // println!("data in io apic = {:x}", entry);
+            // println!("ioapic data = {:?}", &ioapic.value[0..32]);
+        }
+    }
+
     fn new(cores: u32, vmm: &VMManager) -> Result<Self, Error> {
         let mut host_bridge_data = [0; 16];
         let data = [0x71908086, 0x02000006, 0x06000001]; //0:00.0 Host bridge: Intel Corporation 440BX/ZX/DX - 82443BX/ZX/DX Host bridge (rev 01)
         for (i, n) in data.iter().enumerate() {
             host_bridge_data[i] = *n;
         }
+        let (irq_sender, irq_receiver) = channel::<u32>();
+
+        let irq = 0;
+        let virtio_start: usize = 64 * GiB;
+        // let vqdev = VirtioVqDev::new_console("console".to_string(), irq_sender.clone());
+        // let console = VirtioMmioDev::new(virtio_start, irq, vqdev, poke_guest);
+        let console = VirtioMmioDev::new_console(virtio_start, irq, "console".into(), irq_sender);
+        let ioapic = Arc::new(RwLock::new(IoApic::new()));
+        let vcpu_ids = Arc::new(RwLock::new(vec![u32::MAX; cores as usize]));
+        let intr_senders = Arc::new(Mutex::new(None));
         let mut vm = VirtualMachine {
-            mem_space: MemSpace::create()?,
+            mem_space: RwLock::new(MemSpace::create()?),
             cores,
-            cf8: 0,
-            host_bridge_data,
-            ioapic: Arc::new(RwLock::new(IoApic::new())),
-            guest_mmap: HashMap::new(),
+            cf8: RwLock::new(0),
+            host_bridge_data: RwLock::new(host_bridge_data),
+            ioapic: ioapic.clone(),
+            vcpu_ids: vcpu_ids.clone(),
+            guest_mmap: RwLock::new(HashMap::new()),
             vmcall_hander: default_vmcall_handler,
             x86_host_xcr0: vmm.x86_host_xcr0,
-            rtc: Rtc { reg: 0 },
-            pit: Pit::default(),
-            com1: Serial::default(),
-            com2: Serial::default(),
+            rtc: RwLock::new(Rtc { reg: 0 }),
+            pit: RwLock::new(Pit::default()),
+            com1: RwLock::new(Serial::default()),
+            com2: RwLock::new(Serial::default()),
+            virtio_mmio_dev: vec![Mutex::new(console)],
+            intr_senders: intr_senders.clone(),
         };
         vm.gpa2hva_map()?;
+        std::thread::Builder::new()
+            .name("ioapic".into())
+            .spawn(move || {
+                Self::ioapic_loop(
+                    intr_senders.clone(),
+                    irq_receiver,
+                    ioapic.clone(),
+                    vcpu_ids.clone(),
+                )
+            })
+            .expect("cannot create ioapic thread");
         Ok(vm)
     }
 
-    fn map_guest_mem(&mut self, maps: HashMap<usize, MachVMBlock>) -> Result<(), Error> {
-        self.guest_mmap = maps;
-        for (gpa, mem_block) in self.guest_mmap.iter() {
+    fn map_guest_mem(&self, maps: HashMap<usize, MachVMBlock>) -> Result<(), Error> {
+        let mut mem_space = self.mem_space.write().unwrap();
+        for (gpa, mem_block) in maps.iter() {
             info!(
                 "map gpa={:x} to hva={:x}, size={}page",
                 gpa,
                 mem_block.start,
                 mem_block.size / 4096
             );
-            self.mem_space.map(
+            mem_space.map(
                 mem_block.start,
                 *gpa,
                 mem_block.size,
                 HV_MEMORY_READ | HV_MEMORY_WRITE | HV_MEMORY_EXEC,
             )?;
         }
+        *self.guest_mmap.write().unwrap() = maps;
         Ok(())
     }
 
     fn gpa2hva_map(&mut self) -> Result<(), Error> {
         let mut trial_addr = 1;
+        let mut mem_space = self.mem_space.write().unwrap();
         loop {
             match vm_self_region(trial_addr) {
                 Ok((start, size, info)) => {
                     if info.protection > 0 {
-                        self.mem_space
-                            .map(start, start, size, info.protection as u64)?;
+                        mem_space.map(start, start, size, info.protection as u64)?;
                     }
                     trial_addr = start + size;
                 }
@@ -213,7 +274,7 @@ impl VirtualMachine {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub struct GuestThread {
-    pub vm: Arc<RwLock<VirtualMachine>>,
+    pub vm: Arc<VirtualMachine>,
     pub id: u32,
     pub init_vmcs: HashMap<u32, u64>,
     pub init_regs: HashMap<X86Reg, u64>,
@@ -221,10 +282,11 @@ pub struct GuestThread {
     posted_irq_desc: usize,
     pub(crate) msr_pat: Cell<u64>,
     pub(crate) apic: Apic,
+    pub(crate) intr_receiver: Option<Receiver<u8>>,
 }
 
 impl GuestThread {
-    pub fn new(vm: &Arc<RwLock<VirtualMachine>>, id: u32) -> Self {
+    pub fn new(vm: &Arc<VirtualMachine>, id: u32) -> Self {
         GuestThread {
             vm: Arc::clone(vm),
             id: id,
@@ -234,18 +296,22 @@ impl GuestThread {
             posted_irq_desc: 0,
             msr_pat: Cell::new(0x7040600070406),
             apic: Apic::new(APIC_GPA as u64, true, false, id, id == 0),
+            intr_receiver: None,
         }
     }
 
     pub fn start(mut self) -> std::thread::JoinHandle<Result<(), Error>> {
         std::thread::spawn(move || {
             let vcpu = VCPU::create()?;
+            {
+                self.vm.vcpu_ids.write().unwrap()[self.id as usize] = vcpu.id();
+            }
             self.run_on(&vcpu)
         })
     }
     pub(crate) fn run_on(&mut self, vcpu: &VCPU) -> Result<(), Error> {
         {
-            let mem_space = &(self.vm.read().unwrap()).mem_space;
+            let mem_space = &self.vm.mem_space.read().unwrap();
             vcpu.set_space(mem_space)?;
             trace!("set vcpu {} space to {}", vcpu.id(), mem_space.id);
         }
@@ -258,6 +324,7 @@ impl GuestThread {
         trace!("set vcpu back {} space to 0", vcpu.id());
         result
     }
+
     fn run_on_inner(&mut self, vcpu: &VCPU) -> Result<(), Error> {
         // it looks like Hypervisor.framework does not support APIC virtualization
         // vcpu.set_vapic_address(self.vapic_addr)?;
@@ -279,11 +346,17 @@ impl GuestThread {
             if let Some(deadline) = self.apic.next_timer_ns {
                 vcpu.run_until(deadline)?;
             } else {
+                // vcpu.run()?;
                 vcpu.run_until(u64::MAX)?;
             }
             let reason = vcpu.read_vmcs(VMCS_RO_EXIT_REASON)?;
-            let rip = vcpu.read_reg(X86Reg::RIP)?;
-            trace!("vm exit reason = {}, rip = {:x}", reason, rip);
+            // let rip = vcpu.read_reg(X86Reg::RIP)?;
+            if reason != VMX_REASON_EPT_VIOLATION
+                && reason != VMX_REASON_IRQ
+                && reason != VMX_REASON_VMX_TIMER_EXPIRED
+            {
+                // warn!("vm exit reason = {}, rip = {:x}", reason, rip);
+            }
             let instr_len = vcpu.read_vmcs(VMCS_RO_VMEXIT_INSTR_LEN)?;
             if reason != VMX_REASON_IRQ {
                 irq_count = 0;
@@ -326,25 +399,38 @@ impl GuestThread {
                     let nmi = (info >> 12) & 1 == 1;
                     let e_type = (info >> 8) & 0b111;
                     let vector = info & 0xf;
-                    if valid {
-                        error!(
-                            "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
-                            valid, nmi, e_type, vector, code
-                        );
-                        HandleResult::Exit
+                    error!(
+                        "VMX_REASON_IRQ, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
+                        valid, nmi, e_type, vector, code
+                    );
+                    print_stack(vcpu, 10);
+                    if let Some(ref recv) = self.intr_receiver {
+                        if let Ok(vector) = recv.try_recv() {
+                            // println!("get interrupt vector {}", vector);
+                            self.apic.fire_externel_interrupt(vector);
+                            HandleResult::Resume
+                        } else {
+                            HandleResult::Exit
+                        }
                     } else {
-                        // error!(
-                        //     "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
-                        //     valid, nmi, e_type, vector, code
-                        // );
-                        HandleResult::Resume
+                        HandleResult::Exit
                     }
+                    // if valid {
+                    //     HandleResult::Exit
+                    // } else {
+                    //     // error!(
+                    //     //     "VMX_REASON_EXC_NMI, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
+                    //     //     valid, nmi, e_type, vector, code
+                    //     // );
+                    //     HandleResult::Exit
+                    // }
                 }
                 VMX_REASON_IRQ_WND => {
                     debug_assert_eq!(vcpu.read_reg(X86Reg::RFLAGS)? & FL_IF, FL_IF);
                     let mut ctrl_cpu = vcpu.read_vmcs(VMCS_CTRL_CPU_BASED)?;
                     ctrl_cpu &= !CPU_BASED_IRQ_WND;
                     vcpu.write_vmcs(VMCS_CTRL_CPU_BASED, ctrl_cpu)?;
+                    // warn!("interrupt window");
                     HandleResult::Resume
                 }
                 VMX_REASON_CPUID => handle_cpuid(&vcpu, self)?,
@@ -418,7 +504,10 @@ impl GuestThread {
                     vcpu.write_vmcs(VMCS_GUEST_IGNORE_IRQ, irq_ignore)?;
                 }
             }
-            self.apic.inject_interrupt(vcpu)?;
+            let vector = self.apic.inject_interrupt(vcpu)?;
+            if reason == VMX_REASON_IRQ {
+                warn!("injected vector {}", vector);
+            }
         }
         Ok(())
     }

@@ -182,7 +182,7 @@ pub fn setup_bios_tables(cores: u32, start: usize, low_mem: &mut MachVMBlock) ->
     let rsdp_offset = start;
     let xsdt_offset = rsdp_offset + size_of::<AcpiTableRsdp>();
     let xsdt_entry_offset = xsdt_offset + size_of::<AcpiTableHeader>();
-    const NUM_XSDT_ENTRIES: usize = 9;
+    const NUM_XSDT_ENTRIES: usize = 8;
     let fadt_offset = xsdt_entry_offset + NUM_XSDT_ENTRIES * size_of::<usize>();
     let dsdt_offset = fadt_offset + size_of::<AcpiTableFadt>();
     let madt_offset = dsdt_offset + 36;
