@@ -12,6 +12,21 @@ pub fn round_down(num: usize) -> usize {
 extern "C" {
     pub fn get_bus_frequency_c() -> u64;
     pub fn get_tsc_frequency_c() -> u64;
+    fn make_stdin_raw_c();
+    fn read_stdin_c() -> u8;
+    fn cpu_memory_barrier_c();
+}
+
+pub fn cpu_memory_barrier() {
+    unsafe { cpu_memory_barrier_c() };
+}
+
+pub fn make_stdin_raw() {
+    unsafe { make_stdin_raw_c() }
+}
+
+pub fn read_stdin() -> u8 {
+    unsafe { read_stdin_c() }
 }
 
 pub fn get_bus_frequency() -> u64 {

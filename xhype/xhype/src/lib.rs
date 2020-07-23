@@ -54,11 +54,41 @@ use serial::Serial;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Receiver, RecvError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, RwLock};
 use virtio::{VirtioId, VirtioMmioDev, VirtioVqDev};
 use vmexit::*;
 use x86::*;
+
+pub fn recv_all<T>(receiver: &Receiver<T>) -> Result<Vec<T>, RecvError> {
+    let mut result = Vec::new();
+    let r = receiver.recv();
+    match r {
+        Ok(v) => {
+            result.push(v);
+            while let Ok(more_v) = receiver.try_recv() {
+                result.push(more_v);
+            }
+            Ok(result)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+pub fn try_recv_all<T>(receiver: &Receiver<T>) -> Result<Vec<T>, TryRecvError> {
+    let mut result = Vec::new();
+    let r = receiver.try_recv();
+    match r {
+        Ok(v) => {
+            result.push(v);
+            while let Ok(more_v) = receiver.try_recv() {
+                result.push(more_v);
+            }
+            Ok(result)
+        }
+        Err(e) => Err(e),
+    }
+}
 
 fn print_stack_inner(vcpu: &VCPU, depth: i32) -> Result<(), Error> {
     let rip = vcpu.read_reg(X86Reg::RIP)?;
@@ -148,8 +178,8 @@ pub struct VirtualMachine {
     x86_host_xcr0: u64,
     pub(crate) rtc: RwLock<Rtc>,
     pub(crate) pit: RwLock<Pit>,
-    pub(crate) com1: RwLock<Serial>,
-    pub(crate) com2: RwLock<Serial>,
+    pub(crate) com1: Mutex<Serial>,
+    // pub(crate) com2: Mutex<Serial>,
     pub(crate) virtio_mmio_dev: Vec<Mutex<VirtioMmioDev>>,
     pub(crate) intr_senders: Arc<Mutex<Option<Vec<Sender<u8>>>>>,
 }
@@ -157,29 +187,6 @@ pub struct VirtualMachine {
 impl VirtualMachine {
     // make it private to force user to create a vm by calling create_vm to make
     // sure that hv_vm_create() is called before hv_vm_space_create() is called
-
-    fn ioapic_loop(
-        intr_senders: Arc<Mutex<Option<Vec<Sender<u8>>>>>,
-        irq_receiver: Receiver<u32>,
-        ioapic: Arc<RwLock<IoApic>>,
-        vcpu_ids: Arc<RwLock<Vec<u32>>>,
-    ) {
-        loop {
-            let irq = irq_receiver.recv().unwrap();
-            let ioapic = ioapic.read().unwrap();
-            let vcpu_ids = vcpu_ids.read().unwrap();
-            let entry = ioapic.value[2 * irq as usize] as u64
-                | ((ioapic.value[2 * irq as usize + 1] as u64) << 32);
-            let senders = intr_senders.lock().unwrap();
-            if let Some(ref some_senders) = *senders {
-                some_senders[0].send((entry & 0xff) as u8).unwrap();
-                interrupt_vcpu(&vcpu_ids[0..1]).unwrap();
-            }
-            // println!("get irq = {}", irq);
-            // println!("data in io apic = {:x}", entry);
-            // println!("ioapic data = {:?}", &ioapic.value[0..32]);
-        }
-    }
 
     fn new(cores: u32, vmm: &VMManager) -> Result<Self, Error> {
         let mut host_bridge_data = [0; 16];
@@ -191,9 +198,10 @@ impl VirtualMachine {
 
         let irq = 0;
         let virtio_start: usize = 64 * GiB;
-        // let vqdev = VirtioVqDev::new_console("console".to_string(), irq_sender.clone());
-        // let console = VirtioMmioDev::new(virtio_start, irq, vqdev, poke_guest);
-        let console = VirtioMmioDev::new_console(virtio_start, irq, "console".into(), irq_sender);
+        let console =
+            VirtioMmioDev::new_console(virtio_start, irq, "console".into(), irq_sender.clone());
+        let mut virio_devices = Vec::new();
+        virio_devices.push(Mutex::new(console));
         let ioapic = Arc::new(RwLock::new(IoApic::new()));
         let vcpu_ids = Arc::new(RwLock::new(vec![u32::MAX; cores as usize]));
         let intr_senders = Arc::new(Mutex::new(None));
@@ -209,16 +217,16 @@ impl VirtualMachine {
             x86_host_xcr0: vmm.x86_host_xcr0,
             rtc: RwLock::new(Rtc { reg: 0 }),
             pit: RwLock::new(Pit::default()),
-            com1: RwLock::new(Serial::default()),
-            com2: RwLock::new(Serial::default()),
-            virtio_mmio_dev: vec![Mutex::new(console)],
+            com1: Mutex::new(Serial::new(4, irq_sender.clone())),
+            // com2: Mutex::new(Serial::new(3, irq_sender.clone())),
+            virtio_mmio_dev: virio_devices,
             intr_senders: intr_senders.clone(),
         };
         vm.gpa2hva_map()?;
         std::thread::Builder::new()
             .name("ioapic".into())
             .spawn(move || {
-                Self::ioapic_loop(
+                IoApic::dispatch(
                     intr_senders.clone(),
                     irq_receiver,
                     ioapic.clone(),
@@ -303,6 +311,7 @@ impl GuestThread {
     pub fn start(mut self) -> std::thread::JoinHandle<Result<(), Error>> {
         std::thread::spawn(move || {
             let vcpu = VCPU::create()?;
+            assert!(vcpu.id() == 0);
             {
                 self.vm.vcpu_ids.write().unwrap()[self.id as usize] = vcpu.id();
             }
@@ -346,6 +355,9 @@ impl GuestThread {
             if let Some(deadline) = self.apic.next_timer_ns {
                 vcpu.run_until(deadline)?;
             } else {
+                // let mut pin_ctrl = vcpu.read_vmcs(VMCS_CTRL_PIN_BASED)?;
+                // pin_ctrl &= !PIN_BASED_PREEMPTION_TIMER;
+                // vcpu.write_vmcs(VMCS_CTRL_PIN_BASED, pin_ctrl)?;
                 // vcpu.run()?;
                 vcpu.run_until(u64::MAX)?;
             }
@@ -399,21 +411,15 @@ impl GuestThread {
                     let nmi = (info >> 12) & 1 == 1;
                     let e_type = (info >> 8) & 0b111;
                     let vector = info & 0xf;
-                    error!(
-                        "VMX_REASON_IRQ, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
-                        valid, nmi, e_type, vector, code
-                    );
-                    print_stack(vcpu, 10);
-                    if let Some(ref recv) = self.intr_receiver {
-                        if let Ok(vector) = recv.try_recv() {
-                            // println!("get interrupt vector {}", vector);
-                            self.apic.fire_externel_interrupt(vector);
-                            HandleResult::Resume
-                        } else {
-                            HandleResult::Exit
-                        }
+                    // println!(
+                    //     "VMX_REASON_IRQ, valid = {}, nmi = {}, type = {}, vector = {}, code = {:b}",
+                    //     valid, nmi, e_type, vector, code
+                    // );
+                    // print_stack(vcpu, 10);
+                    if self.intr_receiver.is_none() {
+                        return Err((VMX_REASON_IRQ, "strange irq vmexit"))?;
                     } else {
-                        HandleResult::Exit
+                        HandleResult::Resume
                     }
                     // if valid {
                     //     HandleResult::Exit
@@ -434,7 +440,34 @@ impl GuestThread {
                     HandleResult::Resume
                 }
                 VMX_REASON_CPUID => handle_cpuid(&vcpu, self)?,
-                VMX_REASON_HLT => HandleResult::Exit,
+                VMX_REASON_HLT => {
+                    if let Some(ref recv) = self.intr_receiver {
+                        if let Some(t) = self.apic.next_timer_ns {
+                            let recv_result = recv.recv_timeout(std::time::Duration::from_nanos(
+                                t - mach_abs_time_ns(),
+                            ));
+                            if let Ok(vector) = recv_result {
+                                self.apic.fire_externel_interrupt(vector);
+                            } else {
+                                self.apic.fire_timer_interrupt(vcpu);
+                            }
+                        } else {
+                            let vector = recv.recv().unwrap();
+                            self.apic.fire_externel_interrupt(vector);
+                        }
+                        HandleResult::Next
+                    } else {
+                        if let Some(t) = self.apic.next_timer_ns {
+                            std::thread::sleep(std::time::Duration::from_nanos(
+                                t - mach_abs_time_ns(),
+                            ));
+                            self.apic.fire_timer_interrupt(vcpu);
+                            HandleResult::Next
+                        } else {
+                            HandleResult::Exit
+                        }
+                    }
+                }
                 VMX_REASON_VMCALL => handle_vmcall(&vcpu, self)?,
                 VMX_REASON_MOV_CR => handle_cr(&vcpu, self)?,
                 VMX_REASON_IO => handle_io(&vcpu, self)?,
@@ -504,9 +537,19 @@ impl GuestThread {
                     vcpu.write_vmcs(VMCS_GUEST_IGNORE_IRQ, irq_ignore)?;
                 }
             }
-            let vector = self.apic.inject_interrupt(vcpu)?;
+            if let Some(ref recv) = self.intr_receiver {
+                if let Ok(vector) = recv.try_recv() {
+                    // println!("vmexit irq: get interrupt vector {:?}", vector);
+                    self.apic.fire_externel_interrupt(vector);
+                } else {
+                    // if reason == VMX_REASON_IRQ {
+                    //     return Err((VMX_REASON_IRQ, "exit from irq but no irq received"))?;
+                    // }
+                }
+            }
+            let inject_result = self.apic.inject_interrupt(vcpu)?;
             if reason == VMX_REASON_IRQ {
-                warn!("injected vector {}", vector);
+                // println!("result: {}", inject_result);
             }
         }
         Ok(())

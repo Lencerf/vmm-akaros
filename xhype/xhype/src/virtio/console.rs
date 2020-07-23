@@ -1,4 +1,5 @@
 use super::*;
+use crate::vmexit::print_cstr_file;
 use std::io::Read;
 
 fn find_avail_bufs<F>(virtq: &Virtq, index: u16, mut handler: F) -> u16
@@ -27,6 +28,8 @@ fn cons_recv_fn(
     isr: Arc<RwLock<u32>>,
 ) {
     loop {
+        std::thread::sleep(std::time::Duration::from_secs(10));
+        continue;
         let virtq_result = recv_virtq.recv();
         if virtq_result.is_err() {
             break;
@@ -125,7 +128,12 @@ fn cons_trans_fn(
                     let flags = desc.flags;
                     if flags & VRING_DESC_F_WRITE == 0 {
                         unsafe {
-                            print_cstr(desc.addr as *const u8, desc.len as u64);
+                            // print_cstr(desc.addr as *const u8, desc.len as u64);
+                            print_cstr_file(
+                                desc.addr as *const u8,
+                                desc.len as u64,
+                                "/Users/changyuanl/test/printc_output/hvc0_output.txt\0".as_ptr(),
+                            )
                         }
                         true
                     } else {
@@ -135,11 +143,11 @@ fn cons_trans_fn(
                 virtq.push_used(desc_head, 0);
                 current_index += 1;
             }
-            *isr.write().unwrap() |= VIRTIO_MMIO_INT_VRING;
-            let avail_flag = virtq.avail_flags();
-            if avail_flag & VRING_AVAIL_F_NO_INTERRUPT == 0 {
-                irq_sender.send(irq).unwrap();
-            }
+            // *isr.write().unwrap() |= VIRTIO_MMIO_INT_VRING;
+            // let avail_flag = virtq.avail_flags();
+            // if avail_flag & VRING_AVAIL_F_NO_INTERRUPT == 0 {
+            //     irq_sender.send(irq).unwrap();
+            // }
         }
     }
 }
@@ -208,5 +216,12 @@ mod test {
         unsafe {
             print_cstr(ptr, a.len() as u64);
         }
+        let b = a.as_bytes();
+        for byte in b.iter() {
+            println!("{}", *byte as char);
+        }
+        let mut buf = String::new();
+        std::io::stdin().read_line(&mut buf).unwrap();
+        println!("len = {}", buf.len())
     }
 }

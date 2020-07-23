@@ -161,16 +161,16 @@ pub fn load_linux64(
     let num_gth = vm.cores;
     let bios_table_size = setup_bios_tables(num_gth, 0xe0000, &mut low_mem);
     trace!("bios_table_size = {:x}", bios_table_size);
-    let mut vapic_block = MachVMBlock::new(num_gth as usize * PAGE_SIZE * 2)?;
+    // let mut vapic_block = MachVMBlock::new(num_gth as usize * PAGE_SIZE * 2)?;
 
-    for i in 0..num_gth {
-        let vapic_offset = i as usize * PAGE_SIZE;
-        vapic_block.write(i as u32, vapic_offset + 0x20, 0);
-        vapic_block.write(0x01060015u32, vapic_offset + 0x30, 0);
-        vapic_block.write((1 << i) as u32, vapic_offset + 0xd0, 0);
-    }
+    // for i in 0..num_gth {
+    //     let vapic_offset = i as usize * PAGE_SIZE;
+    //     vapic_block.write(i as u32, vapic_offset + 0x20, 0);
+    //     vapic_block.write(0x01060015u32, vapic_offset + 0x30, 0);
+    //     vapic_block.write((1 << i) as u32, vapic_offset + 0xd0, 0);
+    // }
 
-    let vapic_block_start = vapic_block.start;
+    // let vapic_block_start = vapic_block.start;
 
     let bp_offset = mem_size - PAGE_SIZE;
     let cmd_line_offset = bp_offset - PAGE_SIZE;
@@ -205,7 +205,7 @@ pub fn load_linux64(
     for (i, virtio_dev) in vm.virtio_mmio_dev.iter().enumerate() {
         let dev = virtio_dev.lock().unwrap();
         let virtio_para = format!(
-            " virtio_mmio.device=1K@0x{:x}:{}:3",
+            " virtio_mmio.device=1K@0x{:x}:{}",
             virtio_start + i * PAGE_SIZE,
             dev.irq
         );
@@ -346,8 +346,8 @@ pub fn load_linux64(
     // it looks like Hypervisor.framework does not support APIC virtualization
     // let apic_page = MachVMBlock::new(PAGE_SIZE)?;
     // mem_maps.insert(APIC_GPA, apic_page);
-    mem_maps.insert(vapic_block_start, vapic_block);
-    vm.map_guest_mem(mem_maps)?;
+    // mem_maps.insert(vapic_block_start, vapic_block);
+    vm.map_guest_mem(mem_maps).unwrap();
     // {
     //     let mut vm_ = vm.write().unwrap();
     //     vm_.map_guest_mem(mem_maps)?;
@@ -360,8 +360,8 @@ pub fn load_linux64(
         let mut gth = GuestThread::new(vm, i);
         gth.intr_receiver = Some(intr_receiver);
 
-        gth.vapic_addr = vapic_block_start + i as usize * PAGE_SIZE;
-        gth.posted_irq_desc = vapic_block_start + (i + num_gth) as usize * PAGE_SIZE;
+        // gth.vapic_addr = vapic_block_start + i as usize * PAGE_SIZE;
+        // gth.posted_irq_desc = vapic_block_start + (i + num_gth) as usize * PAGE_SIZE;
         info!("guest thread {} with vapid_addr = {:x}", i, gth.vapic_addr);
         guest_threads.push(gth);
     }

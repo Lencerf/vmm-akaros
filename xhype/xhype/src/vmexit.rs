@@ -737,28 +737,28 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
         }
         COM1_BASE..=COM1_MAX => {
             if io_in(qual) {
-                let v = gth.vm.com1.write().unwrap().read(port - COM1_BASE);
+                let v = gth.vm.com1.lock().unwrap().read(port - COM1_BASE);
                 // if v == 0xff {
                 //     print_stack(vcpu, 10);
                 // }
                 vcpu.write_reg(X86Reg::RAX, v as u64)?;
             } else {
                 let v = (rax & 0xff) as u8;
-                gth.vm.com1.write().unwrap().write(port - COM1_BASE, v);
+                gth.vm.com1.lock().unwrap().write(port - COM1_BASE, v);
             }
             Ok(HandleResult::Next)
         }
-        COM2_BASE..=COM2_MAX => {
-            if io_in(qual) {
-                // let mut vm = gth.vm.write().unwrap();
-                let v = gth.vm.com2.write().unwrap().read(port - 0x2f8);
-                vcpu.write_reg(X86Reg::RAX, v as u64)?;
-            } else {
-                let v = (rax & 0xff) as u8;
-                gth.vm.com2.write().unwrap().write(port - 0x2f8, v);
-            }
-            Ok(HandleResult::Next)
-        }
+        // COM2_BASE..=COM2_MAX => {
+        //     if io_in(qual) {
+        //         // let mut vm = gth.vm.write().unwrap();
+        //         let v = gth.vm.com2.lock().unwrap().read(port - 0x2f8);
+        //         vcpu.write_reg(X86Reg::RAX, v as u64)?;
+        //     } else {
+        //         let v = (rax & 0xff) as u8;
+        //         gth.vm.com2.lock().unwrap().write(port - 0x2f8, v);
+        //     }
+        //     Ok(HandleResult::Next)
+        // }
         0x3e8..=0x3ef => {
             if io_in(qual) {
                 error!("read from com3, offset = {}", port - 0x3e8);
@@ -836,6 +836,8 @@ pub fn handle_io(vcpu: &VCPU, gth: &GuestThread) -> Result<HandleResult, Error> 
 extern "C" {
     pub fn print_cstr(s: *const u8, num: u64);
     pub fn print_num(num: u64, format: u64);
+    pub fn print_cstr_file(str: *const u8, n: u64, file: *const u8);
+    pub fn print_file(str: *const u8, n: u64, file: *const u8);
 }
 
 pub fn default_vmcall_handler(vcpu: &VCPU, _gth: &GuestThread) -> Result<HandleResult, Error> {

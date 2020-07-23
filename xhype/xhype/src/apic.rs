@@ -373,10 +373,10 @@ impl Apic {
                         return Ok(format!("vector {} injected", vector));
                     } else {
                         if vector != 236 {
-                            info!(
-                                "vmentry info irq valid, cannot inject {}, exitreason = {}",
-                                vector, reason
-                            );
+                            // println!(
+                            //     "vmentry info irq valid, cannot inject {}, exitreason = {}",
+                            //     vector, reason
+                            // );
                         }
                         result = Ok(format!(
                             "vmentry info irq valid, cannot inject {}, exitreason = {}",
@@ -385,10 +385,10 @@ impl Apic {
                     }
                 } else {
                     if vector != 236 {
-                        info!(
-                            "cannot inject interrupt {}, sti/movss blocking, reason = {}",
-                            vector, reason
-                        );
+                        // println!(
+                        //     "cannot inject interrupt {}, sti/movss blocking, reason = {}",
+                        //     vector, reason
+                        // );
                     }
                     result = Ok(format!(
                         "cannot inject interrupt {}, sti/movss blocking, reason = {}",
@@ -397,10 +397,10 @@ impl Apic {
                 }
             } else {
                 if vector != 236 {
-                    info!(
-                        "cannot inject interrupt, rflag & FL_IP = 0, cannot inject {}, reason = {}",
-                        vector, reason
-                    );
+                    // println!(
+                    //     "cannot inject interrupt, rflag & FL_IP = 0, cannot inject {}, reason = {}",
+                    //     vector, reason
+                    // );
                 }
                 result = Ok(format!(
                     "cannot inject interrupt, rflag & FL_IP = 0, cannot inject {}, reason = {}",

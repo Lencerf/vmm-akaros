@@ -11,9 +11,31 @@ void raw_vmcall(uint64_t vmcall_nr, void* args, long n)
 	             : "D"(vmcall_nr), "S"(args), "d"(n));
 }
 
+
+
 void print_cstr(char* str, long n) {
-	for(int i = 0; i < n; i += 1)
+	for(int i = 0; i < n; i += 1) {
 		printf("%c", *(str+i));
+	}
+	fflush(stdout);
+}
+
+void print_cstr_file(char* str, long n, char* file) {
+	FILE *f = fopen(file, "a+");
+	for(int i = 0; i < n; i += 1) {
+		printf("%c", *(str+i));
+		fprintf(f, "%c", *(str+i));
+	}
+	fflush(stdout);
+	fclose(f);
+}
+
+void print_file(char* str, long n, char* file) {
+	FILE *f = fopen(file, "a+");
+	for(int i = 0; i < n; i += 1) {
+		fprintf(f, "%c", *(str+i));
+	}
+	fclose(f);
 }
 
 void print_num(long num, long format) {

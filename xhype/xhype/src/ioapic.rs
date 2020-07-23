@@ -1,9 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
+use crate::hv::interrupt_vcpu;
 use crate::{Error, GuestThread, VCPU};
 use bitfield::bitfield;
 #[allow(unused_imports)]
 use log::*;
 
+use std::sync::{
+    mpsc::{channel, Receiver, Sender},
+    Arc, Mutex, RwLock,
+};
 // bitfield! {
 //     struct IoApicEntry(u64);
 //     u64;
@@ -86,6 +91,48 @@ impl IoApic {
             reg: 0,
             arbid: 0,
             value: [0; 256],
+        }
+    }
+
+    pub fn dispatch(
+        intr_senders: Arc<Mutex<Option<Vec<Sender<u8>>>>>,
+        irq_receiver: Receiver<u32>,
+        ioapic: Arc<RwLock<IoApic>>,
+        vcpu_ids: Arc<RwLock<Vec<u32>>>,
+    ) {
+        loop {
+            let irq = irq_receiver.recv().unwrap();
+            let ioapic = ioapic.read().unwrap();
+            let vcpu_ids = vcpu_ids.read().unwrap();
+            let entry = ioapic.value[2 * irq as usize] as u64
+                | ((ioapic.value[2 * irq as usize + 1] as u64) << 32);
+            let vector = (entry & 0xff) as u8;
+            let dest = entry >> 56;
+            let senders = intr_senders.lock().unwrap();
+            if let Some(ref some_senders) = *senders {
+                // println!(
+                //     "get irq = {}, entry = {:x} vector = {:x}",
+                //     irq, entry, vector
+                // );
+                if entry & (1 << 11) == 0 {
+                    // physical mode
+                    let dest = (dest & 0b1111) as usize;
+                    some_senders[dest].send(vector).unwrap();
+                    interrupt_vcpu(&vcpu_ids[dest..(dest + 1)]).unwrap();
+                } else {
+                    // logical destination mode
+                    for i in 0..8 {
+                        if dest & (1 << i) != 0 {
+                            some_senders[i].send(vector).unwrap();
+                            interrupt_vcpu(&vcpu_ids[i..(i + 1)]).unwrap();
+                        }
+                    }
+                }
+            } else {
+                println!("sender is none");
+            }
+            // println!("data in io apic = {:x}", entry);
+            // println!("ioapic data = {:?}", &ioapic.value[0..32]);
         }
     }
 }
